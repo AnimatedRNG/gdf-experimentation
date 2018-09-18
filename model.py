@@ -7,7 +7,8 @@ from mesh import write_sdf_to_file
 def gdf_raw(tree, p):
     '''Returns a Generalized Distance Function'''
     return lambda v: sum(
-        gdf_raw(t[0], t[1])(v) if isinstance(t, tuple) else np.dot(t, v) ** p
+        gdf_raw(t[0], t[1])(v) if isinstance(
+            t, tuple) else np.abs(np.dot(t, v) ** p)
         for t in tree) ** (1 / p)
 
 
