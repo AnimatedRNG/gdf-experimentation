@@ -1,64 +1,51 @@
 #!/usr/bin/env python3
 
-import pyglet
-from pyglet.gl import *
+import moderngl
+import numpy as np
 
-from shader import Shader
+from example_window import Example, run_example
 
 vs = '''
-#version 430 core
-layout(location = 0) in vec3 position;
+# version 430 core
+layout(location = 0) in vec2 position;
 
 void main() {
-    gl_Position = vec4(position, 1.);
+    gl_Position = vec4(position * 2.0 - 1.0, 0.0, 1.);
 }
 '''
 
 fs = '''
-#version 430 core
-out vec3 color;
+# version 430 core
+out vec4 color;
 
 void main() {
-    color = vec3(1.0, 0.0, 0.0);
+    color = vec4(1.0, 0.0, 0.0, 0.0);
 }
 '''
 
-# create the window, but keep it offscreen until we are done with setup
-window = pyglet.window.Window(
-    640, 480, resizable=True, visible=False, caption="SDF Visualizer")
 
-window.recompile = True
+class SDFVisualizer(Example):
+    WINDOW_SIZE = (640, 640)
 
-# create a fullscreen quad
-batch = pyglet.graphics.Batch()
-batch.add(4, GL_QUADS, None, ('v2i', (0, 0, 1, 0, 1, 1, 0, 1)),
-          ('t2f', (0, 0, 1.0, 0, 1.0, 1.0, 0, 1.0)))
+    def __init__(self):
+        self.ctx = moderngl.create_context()
 
+        width, height = self.wnd.size
+        canvas = np.array(
+            [0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0]).astype('f4')
 
-def update_gdf(func_string):
-    recompile = True
+        self.prog = self.ctx.program(vertex_shader=vs, fragment_shader=fs)
 
+        self.vbo = self.ctx.buffer(canvas.tobytes())
+        self.vao = self.ctx.simple_vertex_array(
+            self.prog, self.vbo, 'position')
 
-@window.event
-def on_resize(width, height):
-    glViewport(0, 0, width, height)
-    return pyglet.event.EVENT_HANDLED
+    def render(self):
+        self.ctx.viewport = self.wnd.viewport
+        self.ctx.clear(0.0, 0.0, 0.0)
 
-
-@window.event
-def on_draw():
-    # clear the screen
-    window.clear()
-
-    if window.recompile:
-        shader = Shader([vs.encode('ascii'), fs.encode('ascii')])
-        recompile = False
-
-    shader.bind()
-    batch.draw()
-    shader.unbind()
+        self.vao.render(moderngl.TRIANGLE_STRIP)
 
 
-def run():
-    window.set_visible(True)
-    pyglet.app.run()
+if __name__ == '__main__':
+    run_example(SDFVisualizer)
