@@ -7,6 +7,7 @@ import numpy as np
 from ctypes import c_int, c_float, c_size_t
 import ctypes
 import matplotlib.pyplot as plt
+import struct
 from os.path import basename, abspath
 
 import pycuda.autoinit
@@ -208,6 +209,19 @@ def write_sdf_to_file(file_name, header, sdf, resolution):
         f.write(resolution.to_bytes(4, 'little'))
         f.write(resolution.to_bytes(4, 'little'))
         f.write(sdf_buffer)
+
+
+def load_sdf_from_file(file_name):
+    with open(file_name, 'rb') as f:
+        header = np.frombuffer(f.read(4 * 6), dtype=np.float32, count=6)
+        resolution_x = struct.unpack('<I', f.read(4))[0]
+        resolution_y = struct.unpack('<I', f.read(4))[0]
+        resolution_z = struct.unpack('<I', f.read(4))[0]
+        size = resolution_x * resolution_y * resolution_z
+        sdf_linear = np.frombuffer(
+            f.read(size * 4), dtype=np.float32, count=size)
+        sdf = sdf_linear.reshape((resolution_x, resolution_y, resolution_z))
+    return (header, sdf)
 
 
 if __name__ == '__main__':
