@@ -10,15 +10,33 @@ OPERATIONS = [
     "pow",
     "min",
     "max",
-    "dot"
+    "dot",
+    "abs"
 ]
+
+
+def num_or_none(s):
+    try:
+        if isinstance(s, (list, tuple)):
+            return s
+        else:
+            return float(s)
+    except ValueError:
+        return None
 
 
 def float_str(v):
     if isinstance(v, (list, tuple)):
         return ", ".join([float_str(a) for a in v])
     else:
-        return "{:.8f}".format(v)
+        return "{}".format(float(v))
+
+
+def extract_type(length):
+    if length == 1:
+        return "float"
+    elif length <= 4:
+        return "vec{}".format(length)
 
 
 class Function():
@@ -27,30 +45,69 @@ class Function():
         if op in OPERATIONS:
             self.op = op
             self.arguments = list(arguments)
+
+            if self.op in ('add', 'sub', 'mul', 'div', 'pow', 'min', 'max', 'abs'):
+                self.ret = max(arg.ret for arg in self.arguments)
+            elif self.op in ('dot'):
+                self.ret = 1
         else:
-            self.op = 'const'
+            n = num_or_none(op)
+            if n is not None:
+                self.op = 'const'
+                if isinstance(op, (tuple, list)):
+                    self.ret = len(op)
+                else:
+                    self.ret = 1
+            else:
+                self.op = 'var'
+                self.ret = arguments[0]
             self.arguments = list(arguments)
             self.arguments.insert(0, op)
         self.shader = self.generate_shader()
         self.model = self.generate_model()
 
+    def get_free_variables(self):
+        if self.op == "var":
+            return [self]
+        elif self.op != "const":
+            vs = []
+            for arg in self.arguments:
+                seen = set()
+                for arg in arg.get_free_variables():
+                    if arg.arguments[0] not in seen:
+                        vs.append(arg)
+                        seen.add(arg.arguments[0])
+            return vs
+        else:
+            return []
+
     def generate_shader(self):
+        args = ["{} {}".format(extract_type(
+            var.ret), var.arguments[0]) for var in self.get_free_variables()]
+        return "{return_type} sdf({arguments}) {{\n return {body}; \n }}"\
+            .format(return_type=extract_type(self.ret),
+                    arguments=", ".join(args),
+                    body=self.function_body())
+
+    def function_body(self):
         if self.op == 'add':
-            return "({} + {})".format(self.arguments[0].generate_shader(), self.arguments[1].generate_shader())
+            return "({} + {})".format(self.arguments[0].function_body(), self.arguments[1].function_body())
         elif self.op == 'sub':
-            return "({} - {})".format(self.arguments[0].generate_shader(), self.arguments[1].generate_shader())
+            return "({} - {})".format(self.arguments[0].function_body(), self.arguments[1].function_body())
         elif self.op == 'mul':
-            return "({} * {})".format(self.arguments[0].generate_shader(), self.arguments[1].generate_shader())
+            return "({} * {})".format(self.arguments[0].function_body(), self.arguments[1].function_body())
         elif self.op == 'div':
-            return "({} / {})".format(self.arguments[0].generate_shader(), self.arguments[1].generate_shader())
+            return "({} / {})".format(self.arguments[0].function_body(), self.arguments[1].function_body())
         elif self.op == 'pow':
-            return "pow({}, {})".format(self.arguments[0].generate_shader(), self.arguments[1].generate_shader())
+            return "pow({}, {})".format(self.arguments[0].function_body(), self.arguments[1].function_body())
         elif self.op == 'min':
-            return "min({}, {})".format(self.arguments[0].generate_shader(), self.arguments[1].generate_shader())
+            return "min({}, {})".format(self.arguments[0].function_body(), self.arguments[1].function_body())
         elif self.op == 'max':
-            return "max({}, {})".format(self.arguments[0].generate_shader(), self.arguments[1].generate_shader())
+            return "max({}, {})".format(self.arguments[0].function_body(), self.arguments[1].function_body())
         elif self.op == 'dot':
-            return "dot({}, {})".format(self.arguments[0].generate_shader(), self.arguments[1].generate_shader())
+            return "dot({}, {})".format(self.arguments[0].function_body(), self.arguments[1].function_body())
+        elif self.op == 'abs':
+            return "abs({})".format(self.arguments[0].function_body())
         elif self.op == 'const':
             if isinstance(self.arguments[0], (list, tuple)):
                 argc = len(self.arguments[0])
@@ -58,12 +115,14 @@ class Function():
                 if argc == 1:
                     return "{}".format(float_str(self.arguments[0][0]))
                 else:
-                    return "vec{}({})".format(argc,
-                                              float_str(tuple(self.arguments[0])))
+                    return "{}({})".format(extract_type(argc),
+                                           float_str(tuple(self.arguments[0])))
             else:
                 return "{}".format(float_str(self.arguments[0]))
+        elif self.op == 'var':
+            return self.arguments[0]
 
-    def generate_model(self):
+    def generate_model(self, params={}):
         if self.op == 'add':
             return self.arguments[0].generate_model() + self.arguments[1].generate_model()
         elif self.op == 'sub':
@@ -80,12 +139,22 @@ class Function():
             return torch.max(self.arguments[0].generate_model(), self.arguments[1].generate_model())
         elif self.op == 'dot':
             return torch.dot(self.arguments[0].generate_model(), self.arguments[1].generate_model())
+        elif self.op == 'abs':
+            return torch.abs(self.arguments[0].generate_model())
         elif self.op == 'const':
-            if isinstance(self.arguments[0], (list, tuple)):
-                return torch.tensor(
-                    self.arguments[0], requires_grad='requires_grad' in self.arguments)
+            try:
+                return self.model
+            except AttributeError:
+                if isinstance(self.arguments[0], (list, tuple)):
+                    return torch.tensor(
+                        self.arguments[0], requires_grad='requires_grad' in self.arguments, dtype=torch.float32)
+                else:
+                    return torch.tensor([self.arguments[0]], requires_grad='requires_grad' in self.arguments, dtype=torch.float32)
+        elif self.op == 'var':
+            if self.arguments[0] in params:
+                return params[self.arguments]
             else:
-                return torch.tensor([self.arguments[0]], requires_grad='requires_grad' in self.arguments)
+                return torch.tensor([0.0 for _ in range(self.ret)])
 
     def update(self):
         if self.op == 'const':
@@ -94,11 +163,17 @@ class Function():
                 ).detach().numpy().tolist()
             else:
                 self.arguments[0] = self.model.clone().detach().item()
-        else:
+        elif self.op != 'var':
             [arg.update() for arg in self.arguments]
 
     def __add__(self, other_func):
         return Function('add', self, other_func)
+
+    def __radd__(self, other):
+        if isinstance(other, (int, float)):
+            return Function('add', Function(other), self)
+        else:
+            return Function('add', other, self)
 
     def __sub__(self, other_func):
         return Function('sub', self, other_func)
@@ -106,7 +181,7 @@ class Function():
     def __mul__(self, other_func):
         return Function('mul', self, other_func)
 
-    def __div__(self, other_func):
+    def __truediv__(self, other_func):
         return Function('div', self, other_func)
 
     def pow(self, other_func):
@@ -120,6 +195,9 @@ class Function():
 
     def dot(self, other_func):
         return Function('dot', self, other_func)
+
+    def abs(self):
+        return Function('abs', self)
 
 
 def main():
@@ -135,6 +213,15 @@ def main():
     b.update()
     print(c.generate_model())
     print(c.generate_shader())
+
+    print(Function("a", 3).generate_shader())
+
+    from model import gdf
+    g = gdf([Function((0.577, 0.577, 0.577)),
+             Function((0.577, 0.577, 0.577))],
+            Function(9.0, 'requires_grad'))
+    at_pos = g(Function((0.0, 0.0, 0.0)))
+    print(at_pos.generate_shader())
 
 
 if __name__ == '__main__':

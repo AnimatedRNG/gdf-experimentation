@@ -1,51 +1,46 @@
 #!/usr/bin/env python3
 
-import moderngl
+from multiprocessing import Process, Queue
+from model import generate_volume, gdf
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.pyplot as plt
+from skimage import measure
+from numpy import sin, cos, pi
 import numpy as np
 
-from example_window import Example, run_example
 
-vs = '''
-# version 430 core
-layout(location = 0) in vec2 position;
+def visualize_sdf_as_mesh(sdf, resolution=32):
+    s = (1.0 / resolution) ** 2
+    try:
+        verts, faces = measure.marching_cubes(sdf, 0, spacing=(s, s, s))
 
-void main() {
-    gl_Position = vec4(position * 2.0 - 1.0, 0.0, 1.);
-}
-'''
-
-fs = '''
-# version 430 core
-out vec4 color;
-
-void main() {
-    color = vec4(1.0, 0.0, 0.0, 0.0);
-}
-'''
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.plot_trisurf(verts[:, 0], verts[:, 1], faces, verts[:, 2],
+                        cmap='Spectral', lw=1)
+        plt.show()
+    except:
+        print("Failed")
+        print(sdf)
 
 
-class SDFVisualizer(Example):
-    WINDOW_SIZE = (640, 640)
-
-    def __init__(self):
-        self.ctx = moderngl.create_context()
-
-        width, height = self.wnd.size
-        canvas = np.array(
-            [0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0]).astype('f4')
-
-        self.prog = self.ctx.program(vertex_shader=vs, fragment_shader=fs)
-
-        self.vbo = self.ctx.buffer(canvas.tobytes())
-        self.vao = self.ctx.simple_vertex_array(
-            self.prog, self.vbo, 'position')
-
-    def render(self):
-        self.ctx.viewport = self.wnd.viewport
-        self.ctx.clear(0.0, 0.0, 0.0)
-
-        self.vao.render(moderngl.TRIANGLE_STRIP)
+queue = Queue()
 
 
-if __name__ == '__main__':
-    run_example(SDFVisualizer)
+def start_visualization():
+    def vis(q):
+        while True:
+            model, resolution = q.get()
+            sdf, _ = generate_volume(gdf(*model), resolution=resolution)
+            sdf = np.reshape(sdf, (resolution, resolution, resolution))
+            print(sdf.shape)
+            visualize_sdf_as_mesh(sdf, resolution)
+    p = Process(target=vis, args=(queue,))
+    p.start()
+
+
+def sdf_visualization(model, resolution=20):
+    #queue.put((model, resolution))
+    sdf, _ = generate_volume(gdf(*model), resolution=resolution)
+    sdf = np.reshape(sdf, (resolution, resolution, resolution))
+    visualize_sdf_as_mesh(sdf, resolution)

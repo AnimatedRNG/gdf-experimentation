@@ -3,21 +3,42 @@
 import numpy as np
 from mesh import write_sdf_to_file
 import torch
+from renderable import Function
+
+
+def p_clamp(p):
+    #min_clamp = torch.min(p, torch.tensor([40.0], dtype=torch.float32))
+    #both_clamp = torch.max(min_clamp, torch.tensor([1.0], dtype=torch.float32))
+    # return both_clamp
+    min_clamp = p.min(Function(40.0))
+    both_clamp = min_clamp.max(Function(1.0))
+    return both_clamp
 
 
 def gdf_raw(tree, p):
     '''Returns a Generalized Distance Function'''
+    # return lambda v: sum(
+    #    gdf_raw(t[0], p_clamp(t[1]))(v) if isinstance(
+    #        t, tuple) else torch.abs(torch.dot(t, v)) ** p
+    #    for t in tree) ** (1 / p)
+
     return lambda v: sum(
-        gdf_raw(t[0], t[1])(v) if isinstance(
-            t, tuple) else torch.abs(torch.dot(t, v)) ** p
-        for t in tree) ** (1 / p)
+        gdf_raw(t[0], p_clamp(t[1]))(v) if isinstance(
+            t, tuple) else t.dot(v).abs().pow(p)
+        for t in tree).pow(Function(1.0) / p)
+
+
+'''def gdf(tree, p,
+        transpose=torch.tensor(np.array([-0.5, -0.5, -0.5],
+                                        dtype=np.float32)), signed_offset=-0.2):
+    #Cleaner interface that transposes and offsets the output
+    return lambda v: gdf_raw(tree, p_clamp(p))(v + transpose) + signed_offset'''
 
 
 def gdf(tree, p,
-        transpose=torch.tensor(np.array([-0.5, -0.5, -0.5],
-                                        dtype=np.float32)), signed_offset=-0.01):
+        transpose=Function([-0.5, -0.5, -0.5]), signed_offset=Function(-0.2)):
     '''Cleaner interface that transposes and offsets the output'''
-    return lambda v: gdf_raw(tree, p)(v + transpose) + signed_offset
+    return lambda v: gdf_raw(tree, p_clamp(p))(v + transpose) + signed_offset
 
 
 def sphere_sdf(radius=0.1, origin=np.array([0.5, 0.5, 0.5])):
@@ -38,12 +59,9 @@ def generate_volume(sdf, resolution=32):
             for k in range(resolution):
                 position = torch.tensor(np.array(
                     [xv[i, j, k], yv[i, j, k], zv[i, j, k]], dtype=np.float32))
-                dist = sdf(position).detach().numpy()
+                #dist = sdf(position).detach().numpy()
+                dist = sdf.generate_model({'pos': position}).detach().numpy()
                 sdf_buffer[j, resolution - i - 1, k] = dist
-
-                if dist < 0.0:
-                    print(dist)
-        print(i)
     return (sdf_buffer.flatten(), np.array([0.0, 1.0, 0.0, 1.0, 0.0, 1.0], dtype=np.float32))
 
 
@@ -56,7 +74,7 @@ if __name__ == '__main__':
              vec3(-0.577, 0.577, 0.577),
              vec3(0.577, -0.577, 0.577),
              vec3(0.577, 0.577, -0.577)],
-            2)
+            torch.tensor([9.0], dtype=torch.float32))
 
     volume, header = generate_volume(g, resolution)
     write_sdf_to_file("model.sdf", header, volume, resolution)
