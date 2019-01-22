@@ -38,6 +38,46 @@ def print_tree(tree, depth=0):
                 depth, t.model, t.model.grad))
 
 
+def optimize_to_sdf(tree, sdf):
+    ps = decompose_tree(tree)
+    vs, p = tree
+    model = gdf(vs, p)(Function('pos', 3))
+    optimizer = torch.optim.Adam(ps)
+
+    loss_fn = torch.nn.MSELoss(size_average=False)
+    for epoch in range(100):
+
+        #print_tree(tree, 0)
+
+        for i in range(1000):
+            xyz = torch.randn(3)
+            d = sdf.generate_model(
+                {'pos': torch.tensor(xyz, dtype=torch.float32)})
+
+            prediction = model.generate_model(
+                {'pos': torch.tensor(xyz, dtype=torch.float32)})
+            expected = torch.tensor(d).unsqueeze(0)
+            # print("{}: prediction: {}, expected: {}".format(
+            #    xyz, prediction, expected))
+            # print("3")
+            # print("4")
+            loss = loss_fn(prediction, expected)
+
+            optimizer.zero_grad()
+            loss.backward(retain_graph=True)
+            optimizer.step()
+            model.update()
+
+            if loss < 1e-14:
+                break
+        print(loss)
+
+        with open("model.glsl", "w") as f:
+            f.write(model.generate_shader())
+
+    return model
+
+
 def optimize_to_point_cloud(tree, pointcloud):
     ps = decompose_tree(tree)
     vs, p = tree
@@ -45,9 +85,7 @@ def optimize_to_point_cloud(tree, pointcloud):
     optimizer = torch.optim.Adam(ps)
     # LBFGS
     loss_fn = torch.nn.MSELoss(size_average=False)
-    for epoch in range(10):
-        print_tree(tree, 0)
-        # visualizer.sdf_visualization(tree)
+    for epoch in range(100):
         for row_index in range(pointcloud.shape[0]):
 
             xyz = pointcloud[row_index][:3]
@@ -59,7 +97,7 @@ def optimize_to_point_cloud(tree, pointcloud):
             expected = torch.tensor(d).unsqueeze(0)
             loss = loss_fn(prediction, expected)
 
-            # print("Prediction {}; expected: {}".format(prediction, expected))
+            #print("Prediction {}; expected: {}".format(prediction, expected))
             # print(ps)
 
             optimizer.zero_grad()
@@ -101,16 +139,6 @@ def main():
     # visualizer.visualize_sdf_as_mesh(sdf)
     # visualizer.start_visualization()
     pc = sdf_to_point_cloud(sdf, header)
-
-    '''def vec3(a, b, c): return torch.tensor(np.array((a, b, c), np.float32),
-                                           requires_grad=True)
-
-    tree = ([vec3(0.577, 0.577, 0.577),
-             vec3(-0.577, 0.577, 0.577),
-             vec3(0.577, -0.577, 0.577),
-             vec3(0.577, 0.577, -0.577)],
-            torch.tensor(np.array([9], np.float32), requires_grad=True))'''
-
     '''def vec3(a, b, c): return Function((a, b, c), 'requires_grad')
     tree = ([vec3(0.577, 0.577, 0.577),
              vec3(-0.577, 0.577, 0.577),
@@ -118,9 +146,19 @@ def main():
              vec3(0.577, 0.577, -0.577)],
             Function([9], 'requires_grad'))'''
 
-    tree = build_tree(1, 4)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.mkl.deterministic = True
+    tree = build_tree(2, 4)
 
-    fitted = optimize_to_point_cloud(tree, pc)
+    def vec3(a, b, c): return Function((a, b, c), 'requires_grad')
+    sdf = ([vec3(0.577, 0.577, 0.577),
+            vec3(-0.577, 0.577, 0.577),
+            vec3(0.577, -0.577, 0.577),
+            vec3(0.577, 0.577, -0.577)],
+           Function([9], 'requires_grad'))
+
+    #fitted = optimize_to_point_cloud(tree, pc)
+    fitted = optimize_to_sdf(tree, gdf(*sdf)(Function('pos', 3)))
     # generated_sdf, generated_header = generate_volume(fitted, resolution=32)
     # write_sdf_to_file("model.sdf", generated_header, generated_sdf, 32)
 
