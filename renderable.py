@@ -124,23 +124,23 @@ class Function():
 
     def generate_model(self, params={}):
         if self.op == 'add':
-            return self.arguments[0].generate_model() + self.arguments[1].generate_model()
+            return self.arguments[0].generate_model(params) + self.arguments[1].generate_model(params)
         elif self.op == 'sub':
-            return self.arguments[0].generate_model() - self.arguments[1].generate_model()
+            return self.arguments[0].generate_model(params) - self.arguments[1].generate_model(params)
         elif self.op == 'mul':
-            return self.arguments[0].generate_model() * self.arguments[1].generate_model()
+            return self.arguments[0].generate_model(params) * self.arguments[1].generate_model(params)
         elif self.op == 'div':
-            return self.arguments[0].generate_model() / self.arguments[1].generate_model()
+            return self.arguments[0].generate_model(params) / self.arguments[1].generate_model(params)
         elif self.op == 'pow':
-            return torch.pow(self.arguments[0].generate_model(), self.arguments[1].generate_model())
+            return torch.pow(self.arguments[0].generate_model(params), self.arguments[1].generate_model(params))
         elif self.op == 'min':
-            return torch.min(self.arguments[0].generate_model(), self.arguments[1].generate_model())
+            return torch.min(self.arguments[0].generate_model(params), self.arguments[1].generate_model(params))
         elif self.op == 'max':
-            return torch.max(self.arguments[0].generate_model(), self.arguments[1].generate_model())
+            return torch.max(self.arguments[0].generate_model(params), self.arguments[1].generate_model(params))
         elif self.op == 'dot':
-            return torch.dot(self.arguments[0].generate_model(), self.arguments[1].generate_model())
+            return torch.dot(self.arguments[0].generate_model(params), self.arguments[1].generate_model(params))
         elif self.op == 'abs':
-            return torch.abs(self.arguments[0].generate_model())
+            return torch.abs(self.arguments[0].generate_model(params))
         elif self.op == 'const':
             try:
                 return self.model
@@ -152,7 +152,7 @@ class Function():
                     return torch.tensor([self.arguments[0]], requires_grad='requires_grad' in self.arguments, dtype=torch.float32)
         elif self.op == 'var':
             if self.arguments[0] in params:
-                return params[self.arguments]
+                return params[self.arguments[0]]
             else:
                 return torch.tensor([0.0 for _ in range(self.ret)])
 
@@ -201,15 +201,15 @@ class Function():
 
 
 def main():
-    a = Function([3, 5])
-    b = Function([4, 6])
+    a = Function([3.0, 5.0])
+    b = Function([4.0, 6.0])
     print((a + b).generate_shader())
     print((a + b).generate_model())
     c = a + b
-    d = Function([5, 7])
+    d = Function([5.0, 7.0])
     print(c.pow(d).generate_shader())
 
-    b.model = torch.tensor([0, 0])
+    b.model = torch.tensor([0.0, 0.0])
     b.update()
     print(c.generate_model())
     print(c.generate_shader())
