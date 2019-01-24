@@ -8,13 +8,15 @@ import os
 
 from numpy import meshgrid
 from model import gdf, generate_volume
-from mesh import mesh_to_sdf, load_sdf_from_file, write_sdf_to_file
+#from mesh import mesh_to_sdf, load_sdf_from_file, write_sdf_to_file
 from renderable import Function
-import visualizer
+#import visualizer
+import time
 
-import pymesh
 
-BATCH_SIZE = 512
+BATCH_SIZE = 4096 * 4 * 4 * 4
+device = torch.device('cuda:0')
+#device = torch.device('cpu')
 
 
 def decompose_tree(tree):
@@ -52,23 +54,27 @@ def optimize_to_sdf(tree, sdf):
         #print_tree(tree, 0)
 
         for i in range(1000):
-            xyz = torch.randn(BATCH_SIZE, 3)
+
+            start = time.time()
+            xyz = torch.randn(BATCH_SIZE, 3, device=device)
+
             d = sdf.generate_model(
-                {'pos': torch.tensor(xyz, dtype=torch.float32)})
+                {'pos': torch.tensor(xyz, dtype=torch.float32, device=device)})
 
             prediction = model.generate_model(
-                {'pos': torch.tensor(xyz, dtype=torch.float32)})
-            expected = torch.tensor(d)
-            # print("{}: prediction: {}, expected: {}".format(
-            #    xyz, prediction, expected))
-            # print("3")
-            # print("4")
+                {'pos': torch.tensor(xyz, dtype=torch.float32, device=device)})
+            expected = d
+            end = time.time()
+
             loss = loss_fn(prediction, expected)
+            # print_tree(tree)
+            print("Loss: {}".format(loss))
 
             optimizer.zero_grad()
             loss.backward(retain_graph=True)
             optimizer.step()
             model.update()
+            print(end - start)
 
             if loss < 1e-14:
                 break
@@ -95,7 +101,7 @@ def optimize_to_point_cloud(tree, pointcloud):
             # prediction = model(torch.tensor(xyz, dtype=torch.float32))
             # prediction = model(Function(xyz.tolist()))
             prediction = model.generate_model(
-                {'pos': torch.tensor(xyz, dtype=torch.float32)})
+                {'pos': torch.tensor(xyz, dtype=torch.float32, device=torch.cuda.current_device())})
             expected = torch.tensor(d).unsqueeze(0)
             loss = loss_fn(prediction, expected)
 

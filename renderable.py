@@ -41,6 +41,9 @@ def extract_type(length):
 
 class Function():
 
+    device = torch.cuda.current_device()
+    #device = torch.device('cpu')
+
     def __init__(self, op, *arguments):
         if op in OPERATIONS:
             self.op = op
@@ -132,6 +135,8 @@ class Function():
         elif self.op == 'div':
             return self.arguments[0].generate_model(params) / self.arguments[1].generate_model(params)
         elif self.op == 'pow':
+            # print("pow of {}, {}".format(self.arguments[0].generate_model(
+            #    params), self.arguments[1].generate_model(params)))
             return torch.pow(self.arguments[0].generate_model(params), self.arguments[1].generate_model(params))
         elif self.op == 'min':
             return torch.min(self.arguments[0].generate_model(params), self.arguments[1].generate_model(params))
@@ -159,22 +164,25 @@ class Function():
             except AttributeError:
                 if isinstance(self.arguments[0], (list, tuple)):
                     return torch.tensor(
-                        self.arguments[0], requires_grad='requires_grad' in self.arguments, dtype=torch.float32)
+                        self.arguments[0], requires_grad='requires_grad' in self.arguments, dtype=torch.float32,
+                        device=Function.device)
                 else:
-                    return torch.tensor([self.arguments[0]], requires_grad='requires_grad' in self.arguments, dtype=torch.float32)
+                    return torch.tensor([self.arguments[0]], requires_grad='requires_grad' in self.arguments, dtype=torch.float32,
+                                        device=Function.device)
         elif self.op == 'var':
             if self.arguments[0] in params:
                 return params[self.arguments[0]]
             else:
-                return torch.tensor([0.0 for _ in range(self.ret)])
+                return torch.tensor([0.0 for _ in range(self.ret)],
+                                    device=Function.device)
 
     def update(self):
         if self.op == 'const':
             if isinstance(self.arguments[0], (list, tuple)):
                 self.arguments[0] = self.model.clone(
-                ).detach().numpy().tolist()
+                ).detach().cpu().numpy().tolist()
             else:
-                self.arguments[0] = self.model.clone().detach().item()
+                self.arguments[0] = self.model.clone().detach().cpu().item()
         elif self.op != 'var':
             [arg.update() for arg in self.arguments]
 
