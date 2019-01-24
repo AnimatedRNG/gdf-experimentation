@@ -137,8 +137,20 @@ class Function():
             return torch.min(self.arguments[0].generate_model(params), self.arguments[1].generate_model(params))
         elif self.op == 'max':
             return torch.max(self.arguments[0].generate_model(params), self.arguments[1].generate_model(params))
+        # matrix multiplication cases
         elif self.op == 'dot':
-            return torch.dot(self.arguments[0].generate_model(params), self.arguments[1].generate_model(params))
+            m0 = self.arguments[0].generate_model(params)
+            m1 = self.arguments[1].generate_model(params)
+            if len(m0.shape) == 2 and len(m1.shape) == 1:
+                b = m0.shape[0]
+                return torch.bmm(m0.expand(b, -1, 1), m1.view(b, 1, -1))
+            elif len(m0.shape) == 1 and len(m1.shape) == 2:
+                b = m1.shape[0]
+                return torch.bmm(m0.expand(b, 1, -1), m1.view(b, -1, 1))
+            elif len(m0.shape) == 1 and len(m1.shape) == 1:
+                return torch.dot(m0, m1)
+            else:
+                assert(False)
         elif self.op == 'abs':
             return torch.abs(self.arguments[0].generate_model(params))
         elif self.op == 'const':
