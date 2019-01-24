@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 
 import numpy as np
-from mesh import write_sdf_to_file
 import torch
 from renderable import Function
 
 
 def p_clamp(p):
-    #min_clamp = torch.min(p, torch.tensor([40.0], dtype=torch.float32))
-    #both_clamp = torch.max(min_clamp, torch.tensor([1.0], dtype=torch.float32))
-    # return both_clamp
-    min_clamp = p.min(Function(40.0))
+    #min_clamp = p.min(Function(40.0))
+    min_clamp = p.min(Function(10.0))
     both_clamp = min_clamp.max(Function(1.0))
     return both_clamp
 
@@ -66,6 +63,7 @@ def generate_volume(sdf, resolution=32):
 
 
 if __name__ == '__main__':
+    from mesh import write_sdf_to_file
     resolution = 32
 
     def vec3(a, b, c): return torch.tensor(np.array((a, b, c), np.float32))
