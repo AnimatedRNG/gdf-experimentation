@@ -14,6 +14,8 @@ import visualizer
 
 import pymesh
 
+BATCH_SIZE = 512
+
 
 def decompose_tree(tree):
     vs, p = tree
@@ -50,13 +52,13 @@ def optimize_to_sdf(tree, sdf):
         #print_tree(tree, 0)
 
         for i in range(1000):
-            xyz = torch.randn(3)
+            xyz = torch.randn(BATCH_SIZE, 3)
             d = sdf.generate_model(
                 {'pos': torch.tensor(xyz, dtype=torch.float32)})
 
             prediction = model.generate_model(
                 {'pos': torch.tensor(xyz, dtype=torch.float32)})
-            expected = torch.tensor(d).unsqueeze(0)
+            expected = torch.tensor(d)
             # print("{}: prediction: {}, expected: {}".format(
             #    xyz, prediction, expected))
             # print("3")
@@ -135,10 +137,10 @@ def build_tree(depth, breadth):
 
 
 def main():
-    header, sdf = load_sdf_from_file(argv[1])
+    #header, sdf = load_sdf_from_file(argv[1])
     # visualizer.visualize_sdf_as_mesh(sdf)
     # visualizer.start_visualization()
-    pc = sdf_to_point_cloud(sdf, header)
+    #pc = sdf_to_point_cloud(sdf, header)
     '''def vec3(a, b, c): return Function((a, b, c), 'requires_grad')
     tree = ([vec3(0.577, 0.577, 0.577),
              vec3(-0.577, 0.577, 0.577),
