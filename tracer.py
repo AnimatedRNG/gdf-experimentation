@@ -153,7 +153,7 @@ def shade(rays, origin, normals, EPS=1e-6):
     return top_light + self_light
 
 
-def normal_pdf(x, sigma=1.0, mean=0.0):
+def normal_pdf(x, sigma=1e-5, mean=0.0):
     return (1.0 / np.sqrt(2.0 * np.pi * sigma * sigma)) * \
         torch.exp((x - mean) ** 2 / (-2.0 * sigma * sigma))
 
@@ -181,7 +181,7 @@ def forward_pass(grid_sdf, width=500, height=500, EPS=1e-6):
         intensity = shade(rays, origin, normals)
         total_intensity += energy * g_d * intensity
         energy_denom += energy * g_d
-        energy -= g_d
+        energy = torch.clamp(energy - g_d, 0.0, 1.0)
 
         num += g_d * intensity
         denom += g_d
@@ -198,7 +198,7 @@ def forward_pass(grid_sdf, width=500, height=500, EPS=1e-6):
         renderer.show('energy_shaded',
                       (total_intensity / energy_denom).numpy())
 
-        renderer.render_all_images(30)
+        renderer.render_all_images(100)
 
 
 if __name__ == '__main__':
