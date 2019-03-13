@@ -133,21 +133,35 @@ def shade(rays, origin, EPS=1e-6):
     return top_light + self_light
 
 
+def normal_pdf(x, sigma=1.0, mean=0.0):
+    return (1.0 / np.sqrt(2.0 * np.pi * sigma * sigma)) * \
+        torch.exp((x - mean) ** 2 / (-2.0 * sigma * sigma))
+
+
 def forward_pass(grid_sdf, width=500, height=500):
     projection_matrix = grid_sdf.perspective
     view_matrix = grid_sdf.view
     rays, origin = projection(projection_matrix, view_matrix, width, height)
+    energy = torch.ones((width, height), dtype=torch.float32)
+    intensity = torch.zeros((width, height, 3), dtype=torch.float32)
+    denom = torch.zeros((width, height, 1), dtype=torch.float32)
+
     for i in range(200):
         print("traced iteration {}".format(i))
+
         pos_2, d = sdf_iteration(rays, None)
-        #print(pos_2[50:53, 50:53])
-        #print(d[50:53, 50:53])
+        g_d = normal_pdf(d)
+        intensity += g_d * shade(rays, origin)
+        denom += g_d
+
         rays[0] = pos_2
 
         cv2.imshow('rays', rays.numpy()[1])
         cv2.imshow('d', d.numpy() / 30.0)
-        cv2.imshow('shaded', shade(rays, origin).numpy())
-        cv2.waitKey(50)
+        cv2.imshow('g_d', g_d.numpy())
+        #cv2.imshow('shaded', shade(rays, origin).numpy())
+        cv2.imshow('shaded', (intensity / denom).numpy())
+        cv2.waitKey(1)
 
 
 if __name__ == '__main__':
