@@ -7,6 +7,29 @@ import cv2
 device = torch.device('cuda:0')
 
 
+class ImageRenderer:
+    def __init__(self, _width=1600, _height=800):
+        self.width = _width
+        self.height = _height
+        self.current_position = [0, 0]
+        self.ideal = (350, 350)
+        self.vbuf = 60
+
+    def show(self, name, img):
+        cv2.imshow(name, cv2.resize(img, self.ideal,
+                                    interpolation=cv2.INTER_AREA))
+        cv2.moveWindow(name, *(self.current_position))
+        if self.width - self.current_position[0] < 2 * (self.ideal[0]):
+            self.current_position[0] = 0
+            self.current_position[1] += self.ideal[1] + self.vbuf
+        else:
+            self.current_position[0] += self.ideal[0]
+
+    def render_all_images(self, pause=1):
+        cv2.waitKey(pause)
+        self.current_position = [0, 0]
+
+
 def projection(proj_matrix, view_matrix, width, height):
     rays = torch.zeros((2, width, height, 3), dtype=torch.float32)
     inv = torch.inverse(proj_matrix @ view_matrix)
@@ -116,12 +139,9 @@ def light_source(light_color,
     return diffuse
 
 
-def shade(rays, origin, EPS=1e-6):
-    normals = sobel(rays[0] - rays[1] * EPS, sdf_model)
-    cv2.imshow('shaded', normals.numpy())
-
-    top_light_color = torch.tensor((0.9, 0.9, 0.9))
-    self_light_color = torch.tensor((0.1, 0.1, 0.1))
+def shade(rays, origin, normals, EPS=1e-6):
+    top_light_color = torch.tensor((0.9, 0.9, 0.0))
+    self_light_color = torch.tensor((0.1, 0.0, 0.1))
 
     top_light_pos = torch.tensor((10.0, 30.0, 0.0))
     self_light_pos = origin
@@ -138,30 +158,47 @@ def normal_pdf(x, sigma=1.0, mean=0.0):
         torch.exp((x - mean) ** 2 / (-2.0 * sigma * sigma))
 
 
-def forward_pass(grid_sdf, width=500, height=500):
+def forward_pass(grid_sdf, width=500, height=500, EPS=1e-6):
     projection_matrix = grid_sdf.perspective
     view_matrix = grid_sdf.view
     rays, origin = projection(projection_matrix, view_matrix, width, height)
-    energy = torch.ones((width, height), dtype=torch.float32)
-    intensity = torch.zeros((width, height, 3), dtype=torch.float32)
+    energy = torch.ones((width, height, 1), dtype=torch.float32)
+    total_intensity = torch.zeros((width, height, 3), dtype=torch.float32)
+    energy_denom = torch.ones((width, height, 1), dtype=torch.float32)
+
+    num = torch.zeros((width, height, 3), dtype=torch.float32)
     denom = torch.zeros((width, height, 1), dtype=torch.float32)
+
+    renderer = ImageRenderer()
 
     for i in range(200):
         print("traced iteration {}".format(i))
 
         pos_2, d = sdf_iteration(rays, None)
+        normals = sobel(rays[0] - rays[1] * EPS, sdf_model)
         g_d = normal_pdf(d)
-        intensity += g_d * shade(rays, origin)
+
+        intensity = shade(rays, origin, normals)
+        total_intensity += energy * g_d * intensity
+        energy_denom += energy * g_d
+        energy -= g_d
+
+        num += g_d * intensity
         denom += g_d
 
         rays[0] = pos_2
 
-        cv2.imshow('rays', rays.numpy()[1])
-        cv2.imshow('d', d.numpy() / 30.0)
-        cv2.imshow('g_d', g_d.numpy())
-        #cv2.imshow('shaded', shade(rays, origin).numpy())
-        cv2.imshow('shaded', (intensity / denom).numpy())
-        cv2.waitKey(1)
+        renderer.show('rays', rays.numpy()[1])
+        renderer.show('normals', normals.numpy())
+        renderer.show('d', d.numpy() / 30.0)
+        renderer.show('g_d', g_d.numpy())
+        renderer.show('energy', energy.numpy())
+        renderer.show('intensity', intensity.numpy())
+        renderer.show('shaded_old', (num / denom).numpy())
+        renderer.show('energy_shaded',
+                      (total_intensity / energy_denom).numpy())
+
+        renderer.render_all_images(30)
 
 
 if __name__ == '__main__':
