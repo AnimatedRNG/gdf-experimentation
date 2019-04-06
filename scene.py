@@ -16,13 +16,17 @@ def load(filename):
                                int(metadata['resolution_z'][0])))
     start = torch.tensor((float(metadata['start_x'][0]),
                           float(metadata['start_y'][0]),
-                          float(metadata['start_z'][0])))
+                          float(metadata['start_z'][0])),
+                         dtype=torch.float64)
     end = torch.tensor((float(metadata['end_x'][0]),
                         float(metadata['end_y'][0]),
-                        float(metadata['end_z'][0])))
-    perspective = torch.tensor(metadata['perspective_matrix']).view(4, 4)
-    view = torch.tensor(metadata['view_matrix']).view(4, 4)
-    data = torch.from_numpy(h5_file.get("data").value).view(
+                        float(metadata['end_z'][0])),
+                       dtype=torch.float64)
+    perspective = torch.tensor(metadata['perspective_matrix'],
+                               dtype=torch.float64).view(4, 4)
+    view = torch.tensor(metadata['view_matrix'],
+                        dtype=torch.float64).view(4, 4)
+    data = torch.from_numpy(h5_file.get("data").value).double().view(
         resolution[0], resolution[1], resolution[2])
 
     return GridSDF(start, end, perspective, view, data)

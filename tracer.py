@@ -3,6 +3,8 @@
 import torch
 import numpy as np
 import cv2
+import imageio
+import os
 
 device = torch.device('cuda:0')
 
@@ -12,8 +14,18 @@ class ImageRenderer:
         self.width = _width
         self.height = _height
         self.current_position = [0, 0]
-        self.ideal = (350, 350)
+        #self.ideal = (256, 192)
+        self.ideal = (384, 288)
         self.vbuf = 60
+        self.recordings = {}
+
+    def record(self, name, img):
+        clipped = np.clip(img * 255.0, 0.0, 255.0).astype(np.uint8)
+        clipped = cv2.cvtColor(clipped, cv2.COLOR_RGB2BGR)
+        if name in self.recordings.keys():
+            self.recordings[name].append(clipped)
+        else:
+            self.recordings[name] = [clipped]
 
     def show(self, name, img):
         cv2.imshow(name, cv2.resize(img, self.ideal,
@@ -29,22 +41,42 @@ class ImageRenderer:
         cv2.waitKey(pause)
         self.current_position = [0, 0]
 
+    def save_gifs(self):
+        if not os.path.isdir("./screenshots"):
+            os.mkdir("./screenshots")
+        for gif_name, gif_images in self.recordings.items():
+            filename = os.path.join("screenshots", gif_name + ".gif")
+            imageio.mimwrite(filename, gif_images, 'GIF')
+            try:
+                os.popen(
+                    "gifsicle -O3 {filename} -o {filename}".format(filename=filename))
+            except Exception as e:
+                print("unable to optimize gif {}: {}".format(filename, e))
+
+
+def sanitize(t, set_value=0):
+    n = t.clone()
+    n[t != t] = set_value
+    return n
+
 
 def projection(proj_matrix, view_matrix, width, height):
-    rays = torch.zeros((2, width, height, 3), dtype=torch.float32)
+    rays = torch.zeros((2, width, height, 3), dtype=torch.float64)
     inv = torch.inverse(proj_matrix @ view_matrix)
     origin = (torch.inverse(view_matrix) @ torch.tensor(
-        (0.0, 0.0, 0.0, 1.0)))[:3]
+        (0.0, 0.0, 0.0, 1.0), dtype=torch.float64))[:3]
     near = 0.1
-    grid = torch.meshgrid(torch.linspace(-1.0, 1.0, width),
-                          torch.linspace(-1.0, 1.0, height))
+    grid = torch.meshgrid(torch.linspace(-1.0, 1.0, width, dtype=torch.float64),
+                          torch.linspace(-1.0, 1.0, height, dtype=torch.float64))
     clip_space = torch.stack(
-        (grid[0], grid[1], torch.ones((width, height)), torch.ones((width, height))), dim=-1)
+        (grid[0], grid[1],
+         torch.ones((width, height), dtype=torch.float64),
+         torch.ones((width, height), dtype=torch.float64)), dim=-1)
     tmp = torch.matmul(inv, clip_space.view(width, height, 4, 1)).squeeze()
-    tmp /= tmp[:, :, 3:]
+    tmp = tmp / tmp[:, :, 3:]
     tmp = tmp[:, :, :3]
-    tmp -= torch.tensor((origin[0], origin[1], origin[2]),
-                        dtype=torch.float32)
+    tmp = tmp - torch.tensor((origin[0], origin[1], origin[2]),
+                             dtype=torch.float64)
     ray_vec = tmp / torch.norm(tmp, p=2, dim=2).unsqueeze(-1)
     rays[0, :, :] = origin + ray_vec * near
     rays[1, :, :] = ray_vec
@@ -54,11 +86,50 @@ def projection(proj_matrix, view_matrix, width, height):
 
 def to_render_dist(dist):
     # TODO: Proper clamping to grid cell boundaries
-    return torch.min(dist, torch.ones(dist.shape, dtype=dist.dtype))
+    # return dist
+    # return torch.min(dist, torch.ones(dist.shape, dtype=dist.dtype))
+    # return torch.ones_like(dist, dtype=torch.float64) / 3
+    step = torch.ones_like(dist, dtype=torch.float64)
+    interpolant = (1.0 - torch.clamp(torch.abs(dist), 0.0, 1.0)) * 90
+    return step / (10 + interpolant)
 
 
-def sdf_model(position):
-    return (torch.norm(position, p=2, dim=2) - 3.0).unsqueeze(-1)
+def vmax(v):
+    return torch.max(torch.max(v[:, :, 0], v[:, :, 1]), v[:, :, 2])
+
+
+def box_model(position, b=torch.tensor((3.0, 3.0, 3.0), dtype=torch.float64)):
+    # Warning: evil discontinuity!
+    d = torch.abs(position) - b
+    zero_tensor = torch.zeros_like(d)
+    return (torch.norm(torch.max(d, zero_tensor), p=2, dim=2) +
+            vmax(torch.min(d, zero_tensor))).unsqueeze(-1)
+
+
+def sphere_model(position,
+                 radius=torch.tensor((3.0,), requires_grad=True)):
+    return (torch.norm(position, p=2, dim=2) - radius).unsqueeze(-1)
+
+
+def grid_sdf_model(position, grid_sdf):
+    span = grid_sdf.end - grid_sdf.start
+    transposed_position = position - grid_sdf.start
+    #print("span: {}".format(span.numpy()))
+    #print("start: {}".format(grid_sdf.start))
+    box_dist = box_model(transposed_position, span / 2)
+
+    # mask out the rays that are within the bounding box
+    box_mask = torch.zeros_like(box_dist)
+    box_mask[box_dist < 1.0] = 1.0
+
+    # This is a massive hack!
+    if box_dist < 1.0:
+        resolution = grid_sdf.data.shape
+        coords = torch.floor((transposed_position / span)
+                             * torch.tensor(resolution))
+        return torch.gather(grid_sdf.data, )
+    else:
+        return box_dist
 
 
 def sdf_iteration(ray_matrix, model):
@@ -68,8 +139,8 @@ def sdf_iteration(ray_matrix, model):
     xyz = ray_matrix[0, :, :, :]
     vec = ray_matrix[1, :, :, :]
     # d = model.generate_model(
-    #    {'pos': torch.tensor(xyz, dtype=torch.float32, device=device)})
-    d = sdf_model(xyz)
+    #    {'pos': torch.tensor(xyz, dtype=torch.float64, device=device)})
+    d = model(xyz)
     return (xyz + to_render_dist(d) * vec, d)
 
 
@@ -81,13 +152,13 @@ def hit_mask(d):
                 hit[i, j] = 1.0
 
 
-def h(positions, index, sdf, EPS=1e-6):
+def h(positions, index, sdf, EPS=1e-5):
     forward = positions.clone()
     backward = positions.clone()
-    forward[:, :, index] += EPS
-    backward[:, :, index] -= EPS
+    forward[:, :, index] = forward[:, :, index] + EPS
+    backward[:, :, index] = backward[:, :, index] - EPS
     top = torch.stack((sdf(backward), sdf(positions), sdf(forward)), dim=-1)
-    bottom = torch.tensor((1.0, 2.0, 1.0)).view(1, -1, 1)
+    bottom = torch.tensor((1.0, 2.0, 1.0), dtype=torch.float64).view(1, -1, 1)
 
     dim_0 = positions.shape[0]
     dim_1 = positions.shape[1]
@@ -98,10 +169,10 @@ def h(positions, index, sdf, EPS=1e-6):
 def h_p(positions, index, sdf, EPS=1e-6):
     forward = positions.clone()
     backward = positions.clone()
-    forward[:, :, index] += EPS
-    backward[:, :, index] -= EPS
+    forward[:, :, index] = forward[:, :, index] + EPS
+    backward[:, :, index] = backward[:, :, index] - EPS
     top = torch.stack((sdf(backward), sdf(forward)), dim=-1)
-    bottom = torch.tensor((1.0, -1.0)).view(1, -1, 1)
+    bottom = torch.tensor((1.0, -1.0), dtype=torch.float64).view(1, -1, 1)
 
     dim_0 = positions.shape[0]
     dim_1 = positions.shape[1]
@@ -115,7 +186,9 @@ def sobel(positions, m):
     h_z = h_p(positions, 2, m) * h(positions, 0, m) * h(positions, 1, m)
 
     h_all = torch.stack((h_x, h_y, h_z), -1)
-    return (-1.0 * h_all) / torch.norm(h_all, p=2, dim=-1).unsqueeze(-1)
+    norm = sanitize(torch.norm(h_all, p=2, dim=-1))
+    norm[norm == 0.0] = 1e-6
+    return (-1.0 * h_all) / (norm).unsqueeze(-1)
 
 
 def light_source(light_color,
@@ -129,7 +202,7 @@ def light_source(light_color,
     dim_1 = positions.shape[1]
 
     light_vec = light_position - positions
-    light_vec /= torch.norm(light_vec, p=2, dim=-1).unsqueeze(-1)
+    light_vec = light_vec / torch.norm(light_vec, p=2, dim=-1).unsqueeze(-1)
     ray_position = positions + light_vec
     diffuse = kd * torch.clamp(
         torch.bmm(normals.view(dim_0 * dim_1, 1, 3),
@@ -140,10 +213,10 @@ def light_source(light_color,
 
 
 def shade(rays, origin, normals, EPS=1e-6):
-    top_light_color = torch.tensor((0.9, 0.9, 0.0))
-    self_light_color = torch.tensor((0.1, 0.0, 0.1))
+    top_light_color = torch.tensor((0.6, 0.6, 0.0), dtype=torch.float64)
+    self_light_color = torch.tensor((0.4, 0.0, 0.4), dtype=torch.float64)
 
-    top_light_pos = torch.tensor((10.0, 30.0, 0.0))
+    top_light_pos = torch.tensor((10.0, 30.0, 0.0), dtype=torch.float64)
     self_light_pos = origin
 
     top_light = light_source(
@@ -153,54 +226,88 @@ def shade(rays, origin, normals, EPS=1e-6):
     return top_light + self_light
 
 
-def normal_pdf(x, sigma=1e-5, mean=0.0):
+def normal_pdf(x, sigma=1e-7, mean=0.0):
     return (1.0 / np.sqrt(2.0 * np.pi * sigma * sigma)) * \
         torch.exp((x - mean) ** 2 / (-2.0 * sigma * sigma))
 
 
-def forward_pass(grid_sdf, width=500, height=500, EPS=1e-6):
+def normal_pdf_rectified(x, sigma=1e-7, mean=0.0):
+    return normal_pdf(torch.relu(x), sigma, mean)
+
+
+def forward_pass(grid_sdf, renderer, width=512, height=384, iterations=300, EPS=1e-6, verbose=True, prefix=""):
     projection_matrix = grid_sdf.perspective
     view_matrix = grid_sdf.view
-    rays, origin = projection(projection_matrix, view_matrix, width, height)
-    energy = torch.ones((width, height, 1), dtype=torch.float32)
-    total_intensity = torch.zeros((width, height, 3), dtype=torch.float32)
-    energy_denom = torch.ones((width, height, 1), dtype=torch.float32)
+    rays, origin = projection(projection_matrix, view_matrix, height, width)
+    energy = torch.ones((height, width, 1), dtype=torch.float64)
+    total_intensity = torch.zeros((height, width, 3), dtype=torch.float64)
+    energy_denom = torch.ones((height, width, 1), dtype=torch.float64)
 
-    num = torch.zeros((width, height, 3), dtype=torch.float32)
-    denom = torch.zeros((width, height, 1), dtype=torch.float32)
+    num = torch.zeros((height, width, 3), dtype=torch.float64)
+    denom = torch.zeros((height, width, 1), dtype=torch.float64)
 
-    renderer = ImageRenderer()
+    #def model(position): return grid_sdf_model(position, grid_sdf)
+    if isinstance(grid_sdf.data, torch.Tensor):
+        raise Exception
+    else:
+        model = grid_sdf.data
 
-    for i in range(200):
+    def fmt(st): return "{}_{}".format(prefix, st)
+    for i in range(iterations):
         print("traced iteration {}".format(i))
 
-        pos_2, d = sdf_iteration(rays, None)
-        normals = sobel(rays[0] - rays[1] * EPS, sdf_model)
-        g_d = normal_pdf(d)
+        pos_2, d = sdf_iteration(rays, model)
+        normals = sanitize(sobel(rays[0] - rays[1] * EPS, model))
+        g_d = sanitize(normal_pdf_rectified(d))
 
-        intensity = shade(rays, origin, normals)
-        total_intensity += energy * g_d * intensity
-        energy_denom += energy * g_d
+        intensity = sanitize(shade(rays, origin, normals))
+        total_intensity = total_intensity + energy * g_d * intensity
+        energy_denom = energy_denom + energy * g_d
         energy = torch.clamp(energy - g_d, 0.0, 1.0)
 
-        num += g_d * intensity
-        denom += g_d
+        #num += g_d * intensity
+        #denom += g_d
 
         rays[0] = pos_2
 
-        renderer.show('rays', rays.numpy()[1])
-        renderer.show('normals', normals.numpy())
-        renderer.show('d', d.numpy() / 30.0)
-        renderer.show('g_d', g_d.numpy())
-        renderer.show('energy', energy.numpy())
-        renderer.show('intensity', intensity.numpy())
-        renderer.show('shaded_old', (num / denom).numpy())
-        renderer.show('energy_shaded',
-                      (total_intensity / energy_denom).numpy())
+        if verbose:
+            renderer.show(fmt('rays'), rays.detach().numpy()[1])
+            renderer.show(fmt('normals'), normals.detach().numpy())
+            renderer.show(fmt('d'), d.detach().numpy() / 30.0)
+            renderer.show(fmt('g_d'), g_d.detach().numpy())
+            renderer.show(fmt('energy'), energy.detach().numpy())
+            renderer.show(fmt('intensity'), intensity.detach().numpy())
+            #renderer.show('shaded_old', (num / denom).numpy())
 
-        renderer.render_all_images(100)
+            renderer.record(fmt('intensity'),
+                            intensity.detach().numpy())
+
+            energy_shaded_img = (
+                total_intensity / energy_denom).detach().numpy()
+            renderer.record(fmt('opacity_shaded'),
+                            energy_shaded_img)
+            renderer.show(fmt('energy_shaded'), energy_shaded_img)
+
+        renderer.render_all_images(1)
+
+    intensity = total_intensity / energy_denom
+    renderer.save_gifs()
+    return (intensity, d)
+
+
+def create_analytic(sc, model):
+    import scene
+    params = sc._asdict()
+    params['data'] = model
+    return scene.GridSDF(**params)
 
 
 if __name__ == '__main__':
     import scene
-    forward_pass(scene.load('test.hdf5'))
+    renderer = ImageRenderer()
+    test_scene = scene.load('test.hdf5')
+    params = test_scene._asdict()
+    params['data'] = box_model
+    print(params)
+    adjusted_scene = scene.GridSDF(**params)
+    forward_pass(adjusted_scene, renderer)
