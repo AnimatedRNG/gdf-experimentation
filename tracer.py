@@ -5,6 +5,7 @@ import numpy as np
 import cv2
 import imageio
 import os
+from collections import namedtuple
 
 device = torch.device('cuda:0')
 
@@ -235,16 +236,36 @@ def normal_pdf_rectified(x, sigma=1e-7, mean=0.0):
     return normal_pdf(torch.relu(x), sigma, mean)
 
 
-def forward_pass(grid_sdf, renderer, width=512, height=384, iterations=300, EPS=1e-6, verbose=True, prefix=""):
+Tiling = namedtuple('Tiling', ['width', 'height',
+                               'x_off', 'y_off',
+                               'x_tile', 'y_tile'])
+
+
+def forward_pass(grid_sdf,
+                 renderer,
+                 tiling=Tiling(
+                     width=512,
+                     height=384,
+                     x_off=0,
+                     y_off=0,
+                     x_tile=512,
+                     y_tile=384
+                 ),
+                 iterations=300, EPS=1e-6, verbose=True, prefix=""):
+    width, height, x_off, y_off, x_tile, y_tile = tiling
     projection_matrix = grid_sdf.perspective
     view_matrix = grid_sdf.view
     rays, origin = projection(projection_matrix, view_matrix, height, width)
-    energy = torch.ones((height, width, 1), dtype=torch.float64)
-    total_intensity = torch.zeros((height, width, 3), dtype=torch.float64)
-    energy_denom = torch.ones((height, width, 1), dtype=torch.float64)
+    rays = rays.unsqueeze(0).repeat(iterations + 1, 1, 1, 1, 1)
+    energy = torch.ones((iterations + 1, height, width, 1),
+                        dtype=torch.float64)
+    total_intensity = torch.zeros(
+        (iterations + 1, height, width, 3), dtype=torch.float64)
+    energy_denom = torch.ones(
+        (iterations + 1, height, width, 1), dtype=torch.float64)
 
-    num = torch.zeros((height, width, 3), dtype=torch.float64)
-    denom = torch.zeros((height, width, 1), dtype=torch.float64)
+    #num = torch.zeros((height, width, 3), dtype=torch.float64)
+    #denom = torch.zeros((height, width, 1), dtype=torch.float64)
 
     #def model(position): return grid_sdf_model(position, grid_sdf)
     if isinstance(grid_sdf.data, torch.Tensor):
@@ -253,29 +274,30 @@ def forward_pass(grid_sdf, renderer, width=512, height=384, iterations=300, EPS=
         model = grid_sdf.data
 
     def fmt(st): return "{}_{}".format(prefix, st)
-    for i in range(iterations):
+    for i in range(1, iterations + 1):
         print("traced iteration {}".format(i))
 
-        pos_2, d = sdf_iteration(rays, model)
-        normals = sanitize(sobel(rays[0] - rays[1] * EPS, model))
+        pos_2, d = sdf_iteration(rays[i - 1], model)
+        normals = sanitize(sobel(rays[i - 1, 0] - rays[i, 1] * EPS, model))
         g_d = sanitize(normal_pdf_rectified(d))
 
-        intensity = sanitize(shade(rays, origin, normals))
-        total_intensity = total_intensity + energy * g_d * intensity
-        energy_denom = energy_denom + energy * g_d
-        energy = torch.clamp(energy - g_d, 0.0, 1.0)
+        intensity = sanitize(shade(rays[i], origin, normals))
+        total_intensity[i] = total_intensity[i - 1] + \
+            energy[i - 1] * g_d * intensity
+        energy_denom[i] = energy_denom[i - 1] + energy[i - 1] * g_d
+        energy[i] = torch.clamp(energy[i - 1] - g_d, 0.0, 1.0)
 
         #num += g_d * intensity
         #denom += g_d
 
-        rays[0] = pos_2
+        rays[i, 0] = pos_2
 
         if verbose:
-            renderer.show(fmt('rays'), rays.detach().numpy()[1])
+            renderer.show(fmt('rays'), rays[i].detach().numpy()[1])
             renderer.show(fmt('normals'), normals.detach().numpy())
             renderer.show(fmt('d'), d.detach().numpy() / 30.0)
             renderer.show(fmt('g_d'), g_d.detach().numpy())
-            renderer.show(fmt('energy'), energy.detach().numpy())
+            renderer.show(fmt('energy'), energy[i].detach().numpy())
             renderer.show(fmt('intensity'), intensity.detach().numpy())
             #renderer.show('shaded_old', (num / denom).numpy())
 
@@ -283,15 +305,15 @@ def forward_pass(grid_sdf, renderer, width=512, height=384, iterations=300, EPS=
                             intensity.detach().numpy())
 
             energy_shaded_img = (
-                total_intensity / energy_denom).detach().numpy()
+                total_intensity[i] / energy_denom[i]).detach().numpy()
             renderer.record(fmt('opacity_shaded'),
                             energy_shaded_img)
             renderer.show(fmt('energy_shaded'), energy_shaded_img)
 
         renderer.render_all_images(1)
 
-    intensity = total_intensity / energy_denom
-    renderer.save_gifs()
+    intensity = total_intensity[iterations] / energy_denom[iterations]
+    # renderer.save_gifs()
     return (intensity, d)
 
 
