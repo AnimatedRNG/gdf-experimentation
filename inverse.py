@@ -21,7 +21,7 @@ def inverse(m1,
             num_epochs=300,
             width=512,
             height=384,
-            tracing_iterations=100,
+            tracing_iterations=220,
             EPS=1e-6):
     current_model, current_params = m1
     target_model, target_params = m2
@@ -30,12 +30,12 @@ def inverse(m1,
     target_output, _ = forward_pass(target_model, renderer,
                                     Tiling(width, height, 0, 0, width, height),
                                     tracing_iterations,
-                                    EPS, False, "target")
+                                    EPS, True, "target")
 
     def forward_pass_model(tiling):
         return forward_pass(current_model, renderer,
                             tiling, tracing_iterations,
-                            EPS, False, "model")
+                            EPS, True, "model")
 
     optimizer = torch.optim.Adam([current_params])
     with torch.autograd.set_detect_anomaly(True):
