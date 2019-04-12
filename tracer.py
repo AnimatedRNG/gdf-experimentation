@@ -16,7 +16,8 @@ class ImageRenderer:
         self.height = _height
         self.current_position = [0, 0]
         #self.ideal = (256, 192)
-        self.ideal = (384, 288)
+        #self.ideal = (384, 288)
+        self.ideal = (256, 256)
         self.vbuf = 60
         self.recordings = {}
 
@@ -61,19 +62,21 @@ def sanitize(t, set_value=0):
     return n
 
 
-def projection(proj_matrix, view_matrix, width, height):
-    rays = torch.zeros((2, width, height, 3), dtype=torch.float64)
+def projection(proj_matrix, view_matrix, tiling):
+    width, height, x_off, y_off, x_tile, y_tile = tiling
+
+    rays = torch.zeros((2, height, width, 3), dtype=torch.float64)
     inv = torch.inverse(proj_matrix @ view_matrix)
     origin = (torch.inverse(view_matrix) @ torch.tensor(
         (0.0, 0.0, 0.0, 1.0), dtype=torch.float64))[:3]
     near = 0.1
-    grid = torch.meshgrid(torch.linspace(-1.0, 1.0, width, dtype=torch.float64),
-                          torch.linspace(-1.0, 1.0, height, dtype=torch.float64))
+    grid = torch.meshgrid(torch.linspace(-1.0, 1.0, height, dtype=torch.float64),
+                          torch.linspace(-1.0, 1.0, width, dtype=torch.float64))
     clip_space = torch.stack(
         (grid[0], grid[1],
-         torch.ones((width, height), dtype=torch.float64),
-         torch.ones((width, height), dtype=torch.float64)), dim=-1)
-    tmp = torch.matmul(inv, clip_space.view(width, height, 4, 1)).squeeze()
+         torch.ones((height, width), dtype=torch.float64),
+         torch.ones((height, width), dtype=torch.float64)), dim=-1)
+    tmp = torch.matmul(inv, clip_space.view(height, width, 4, 1)).squeeze()
     tmp = tmp / tmp[:, :, 3:]
     tmp = tmp[:, :, :3]
     tmp = tmp - torch.tensor((origin[0], origin[1], origin[2]),
@@ -82,7 +85,7 @@ def projection(proj_matrix, view_matrix, width, height):
     rays[0, :, :] = origin + ray_vec * near
     rays[1, :, :] = ray_vec
 
-    return rays, origin
+    return rays[:, y_off:y_off+y_tile, x_off:x_off+x_tile, :], origin
 
 
 def to_render_dist(dist):
@@ -252,17 +255,17 @@ def forward_pass(grid_sdf,
                      y_tile=384
                  ),
                  iterations=300, EPS=1e-6, verbose=True, prefix=""):
-    width, height, x_off, y_off, x_tile, y_tile = tiling
+    _, _, x_off, y_off, x_tile, y_tile = tiling
     projection_matrix = grid_sdf.perspective
     view_matrix = grid_sdf.view
-    rays, origin = projection(projection_matrix, view_matrix, height, width)
+    rays, origin = projection(projection_matrix, view_matrix, tiling)
     rays = rays.unsqueeze(0).repeat(iterations + 1, 1, 1, 1, 1)
-    energy = torch.ones((iterations + 1, height, width, 1),
-                        dtype=torch.float64)
+    energy = torch.ones((iterations + 1, y_tile, x_tile, 1),
+                        dtype=torch.float64) * 100
     total_intensity = torch.zeros(
-        (iterations + 1, height, width, 3), dtype=torch.float64)
+        (iterations + 1, y_tile, x_tile, 3), dtype=torch.float64)
     energy_denom = torch.ones(
-        (iterations + 1, height, width, 1), dtype=torch.float64)
+        (iterations + 1, y_tile, x_tile, 1), dtype=torch.float64)
 
     #num = torch.zeros((height, width, 3), dtype=torch.float64)
     #denom = torch.zeros((height, width, 1), dtype=torch.float64)
@@ -278,10 +281,10 @@ def forward_pass(grid_sdf,
         print("traced iteration {}".format(i))
 
         pos_2, d = sdf_iteration(rays[i - 1], model)
-        normals = sanitize(sobel(rays[i - 1, 0] - rays[i, 1] * EPS, model))
+        normals = sanitize(sobel(rays[i - 1, 0] - rays[i - 1, 1] * EPS, model))
         g_d = sanitize(normal_pdf_rectified(d))
 
-        intensity = sanitize(shade(rays[i], origin, normals))
+        intensity = sanitize(shade(rays[i - 1], origin, normals))
         total_intensity[i] = total_intensity[i - 1] + \
             energy[i - 1] * g_d * intensity
         energy_denom[i] = energy_denom[i - 1] + energy[i - 1] * g_d
