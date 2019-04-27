@@ -282,11 +282,7 @@ def forward_pass(grid_sdf,
 
         pos_2, d = sdf_iteration(rays[i - 1], model)
         ds = to_render_dist(d)
-        rays0 = rays[i - 1, 0]
-        rays1 = rays[i - 1, 1]
-        rays1_rays0 = rays0 - rays1 * EPS
-        s = sobel(rays1_rays0, model)
-        normals = sanitize(s)
+        normals = sanitize(sobel(rays[i - 1, 0] - rays[i - 1, 1] * EPS, model))
         g_d = sanitize(normal_pdf_rectified(d))
 
         intensity = sanitize(shade(rays[i - 1], origin, normals))
@@ -305,9 +301,7 @@ def forward_pass(grid_sdf,
             renderer.show(fmt('g_d'), g_d.detach().numpy())
             renderer.show(fmt('opacity'), opc[i].detach().numpy())
             renderer.show(fmt('ds'), ds.detach().numpy())
-            #renderer.show(fmt('energy'), energy[i].detach().numpy())
             renderer.show(fmt('intensity'), intensity.detach().numpy())
-            #renderer.show('shaded_old', (num / denom).numpy())
 
             renderer.record(fmt('intensity'),
                             intensity.detach().numpy())
@@ -315,7 +309,7 @@ def forward_pass(grid_sdf,
             energy_shaded_img = (c[i]).detach().numpy()
             renderer.record(fmt('opacity_shaded'),
                             energy_shaded_img)
-            renderer.show(fmt('energy_shaded'), energy_shaded_img)
+            renderer.show(fmt('opacity_shaded'), energy_shaded_img)
 
         renderer.render_all_images(1)
 
