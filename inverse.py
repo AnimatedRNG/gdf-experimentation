@@ -9,9 +9,12 @@ from tracer import ImageRenderer, forward_pass, Tiling
 
 
 def tiled_iterator(width, height, x_tile, y_tile, f_pass):
-    for x in range(0, width, x_tile):
-        for y in range(0, height, y_tile):
-            tiling = Tiling(width, height, x, y, x_tile, y_tile)
+    for i in range(0, width, x_tile):
+        for j in range(0, height, y_tile):
+            tiling = Tiling(width=width, height=height, x_off=i, y_off=j,
+                            x_tile=x_tile, y_tile=y_tile)
+            print("about to yield tiling: {}".format(tiling))
+            print("j: {}".format(j))
             yield (tiling, f_pass(tiling))
 
 
@@ -28,7 +31,8 @@ def inverse(m1,
 
     loss_fn = torch.nn.MSELoss(size_average=False)
     target_output, _ = forward_pass(target_model, renderer,
-                                    Tiling(width, height, 0, 0, width, height),
+                                    Tiling(width, height, 0,
+                                           0, width, height),
                                     tracing_iterations,
                                     EPS, True, "target")
 
@@ -40,9 +44,12 @@ def inverse(m1,
     optimizer = torch.optim.Adam([current_params])
     with torch.autograd.set_detect_anomaly(True):
         for epoch in range(num_epochs):
-            for tiling, (tile_output, _) in tiled_iterator(width, height,
-                                                           64, 64,
-                                                           forward_pass_model):
+            print("epoch {}".format(epoch))
+            it = tiled_iterator(width, height,
+                                64, 64,
+                                forward_pass_model)
+            for tiling, (tile_output, _) in it:
+                print("tiling: {}".format(tiling))
                 _, _, x_off, y_off, x_tile, y_tile = tiling
                 loss = loss_fn(tile_output,
                                target_output[y_off:y_off+y_tile,
@@ -54,9 +61,9 @@ def inverse(m1,
                 optimizer.zero_grad()
                 loss.backward(retain_graph=False)
                 optimizer.step()
-                current_model.update()
+                # current_model.update()
 
-                if loss < 1e-14:
+                if loss < 1e-14 and torch.sum(tile_output) > 0.0:
                     break
 
 

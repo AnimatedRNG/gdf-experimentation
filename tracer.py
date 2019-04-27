@@ -259,11 +259,10 @@ def forward_pass(grid_sdf,
     projection_matrix = grid_sdf.perspective
     view_matrix = grid_sdf.view
     rays, origin = projection(projection_matrix, view_matrix, tiling)
-    rays = rays.unsqueeze(0).repeat(iterations + 1, 1, 1, 1, 1)
-    opc = torch.zeros((iterations + 1, y_tile, x_tile, 1),
-                      dtype=torch.float64)
-    c = torch.zeros(
-        (iterations + 1, y_tile, x_tile, 3), dtype=torch.float64)
+    #rays = [rays.unsqueeze(0).repeat(1, 1, 1, 1)]
+    rays = [rays]
+    opc = [torch.zeros((y_tile, x_tile, 1), dtype=torch.float64)]
+    c = [torch.zeros((y_tile, x_tile, 3), dtype=torch.float64)]
     k = -1.0
     u_s = 1.0
 
@@ -282,17 +281,20 @@ def forward_pass(grid_sdf,
 
         pos_2, d = sdf_iteration(rays[i - 1], model)
         ds = to_render_dist(d)
-        normals = sanitize(sobel(rays[i - 1, 0] - rays[i - 1, 1] * EPS, model))
+        normals = sanitize(sobel(rays[i - 1][0] - rays[i - 1][1] * EPS, model))
         g_d = sanitize(normal_pdf_rectified(d))
 
         intensity = sanitize(shade(rays[i - 1], origin, normals))
-        opc[i] = opc[i - 1] + g_d * ds
-        c[i] = c[i - 1] + (g_d * u_s) * torch.exp(k * opc[i]) * intensity * ds
+        opc.append(opc[i - 1] + g_d * ds)
+        c.append(c[i - 1] + (g_d * u_s) *
+                 torch.exp(k * opc[i]) * intensity * ds)
 
         #num += g_d * intensity
         #denom += g_d
 
-        rays[i, 0] = pos_2
+        rays_cpy = rays[-1].clone()
+        rays_cpy[0] = pos_2
+        rays.append(rays_cpy)
 
         if verbose:
             renderer.show(fmt('rays'), rays[i].detach().numpy()[1])
