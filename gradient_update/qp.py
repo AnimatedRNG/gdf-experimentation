@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import osqp
-from scipy.sparse import identity, csc_matrix
+from scipy.sparse import identity, csc_matrix, coo_matrix
 from scipy.signal import correlate2d
 import numpy as np
 import seaborn as sns
@@ -9,11 +9,11 @@ import matplotlib.pyplot as plt
 sns.set()
 
 
-def gen_sdf(f, dims):
+def gen_sdf(f, dims, *args):
     sdf = np.zeros(dims, dtype=np.float64)
     for i in range(sdf.shape[0]):
         for j in range(sdf.shape[1]):
-            sdf[i, j] = f(np.array([i, j], dtype=np.float64))
+            sdf[i, j] = f(np.array([i, j], dtype=np.float64), *args)
     return sdf
 
 
@@ -52,6 +52,14 @@ def validity(sd_field, C=1.0):
     return (np.abs(Gx).max(), np.abs(Gy).max())
 
 
+def index(i, j, d2):
+    return i * d2 + j
+
+
+def unindex(index, d2):
+    return (index // d2, index % d2)
+
+
 def optimize_correction(sd_field, gradient_update, C=1):
     assert(sd_field.shape == gradient_update.shape)
 
@@ -84,16 +92,24 @@ def optimize_correction(sd_field, gradient_update, C=1):
         min(max(b, 0), sd_field.shape[1] - 1),
     )
 
-    E = csc_matrix((E_rows, E_cols), dtype=np.float64)
+    dc = {}
+
+    def up(coord, val):
+        if coord in dc.keys():
+            dc[coord] += val
+        else:
+            dc[coord] = val
+
+    k_size = gx_kernel.shape
     for i in range(sd_field.shape[0]):
         for j in range(sd_field.shape[1]):
-            base_index = j * sd_field.shape[0] + i
+            base_index = index(i, j, sd_field.shape[1])
 
             kern_index = 0
             for si in range(i - 1, i + 2):
                 for sj in range(j - 1, j + 2):
                     a_si, a_sj = clamp(si, sj)
-                    sb_index = a_sj * sd_field.shape[0] + a_si
+                    sb_index = index(a_si, a_sj, sd_field.shape[1])
 
                     '''print("{} -- {} || (ai, aj) {}: {} | {} --> {}".format(
                         base_index,
@@ -103,12 +119,20 @@ def optimize_correction(sd_field, gradient_update, C=1):
                         kern_index,
                         gx_kernel.ravel()[kern_index]))'''
 
-                    E[base_index, sb_index] += \
-                        gx_kernel.ravel()[kern_index]
-                    E[N + base_index, sb_index] += \
-                        gy_kernel.ravel()[kern_index]
+                    up((base_index, sb_index), gx_kernel.ravel()[kern_index])
+                    up((N + base_index, sb_index),
+                       gy_kernel.ravel()[kern_index])
 
                     kern_index += 1
+    row_ind = []
+    col_ind = []
+    data = []
+
+    for (i, j), val in dc.items():
+        row_ind.append(i)
+        col_ind.append(j)
+        data.append(val)
+    E = coo_matrix((data, (row_ind, col_ind)))
 
     # |d(d)/dx| <= 1, |d(d)/dy| <= C
     # recall that d = G + x
@@ -128,6 +152,10 @@ def optimize_correction(sd_field, gradient_update, C=1):
     l[:N] = -C - Gx.ravel()
     l[N:2*N] = -C - Gy.ravel()
 
+    for i in range(N):
+        print("{} <= Sobel_x <= {}".format(l[i], u[i]))
+        print("{} <= Sobel_y <= {}".format(l[2 * i], u[2 * i]))
+
     prob = osqp.OSQP()
 
     print("solving problem...")
@@ -146,13 +174,16 @@ def optimize_correction(sd_field, gradient_update, C=1):
 
 
 if __name__ == '__main__':
-    dims = (100, 100)
-    def sphere(p): return np.linalg.norm(p) - int(dims[0] * 0.3)
-    gradient = np.zeros(dims)
-    sdf = gen_sdf(sphere, dims)
+    dims = (32, 32)
 
-    for i in range(int(0.6 * dims[0]), int(0.7 * dims[1])):
-        for j in range(int(0.6 * dims[0]), int(0.7 * dims[1])):
-            gradient[i,  j] = -10.0
+    def sphere(p, off, radius):
+        return np.linalg.norm(p - off) - radius
+    gradient = np.zeros(dims)
+    sdf = gen_sdf(sphere, dims,
+                  np.array((dims[0] / 2, dims[1] / 2)),
+                  int(dims[0] * 0.3))
+
+    gradient[20, 20] = -10.0
+    #gradient -= np.random.random((dims[0], dims[1])) * 10.0
 
     optimize_correction(sdf, gradient)
