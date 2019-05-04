@@ -17,8 +17,37 @@ def gen_sdf(f, dims, *args):
     return sdf
 
 
-# not used, just an example of how it's supposed to work
+def create_kernels(size):
+    assert size % 2 == 1
+    gx = np.zeros((size, size), dtype=np.float64)
+    gy = np.zeros((size, size), dtype=np.float64)
+    for i_raw in range(size):
+        for j_raw in range(size):
+            i = i_raw - size // 2
+            j = j_raw - size // 2
+            denom = (i * i + j * j)
+            if denom != 0:
+                gy[i_raw, j_raw] = i / (i * i + j * j)
+                gx[i_raw, j_raw] = j / (i * i + j * j)
+            else:
+                gy[i_raw, j_raw] = 0
+                gx[i_raw, j_raw] = 0
+
+    # I'm too lazy to rederive this
+    weights = {
+        3: 4,
+        5: 12,
+        7: 24,
+        9: 40,
+    }
+    total = weights[size]
+
+    print("total: {}".format(total))
+    return (gx / total, gy / total)
+
+
 def correlate(f1, f2):
+    '''not used, just an example of how it's supposed to work'''
     output = np.zeros_like(f1)
 
     def access(p):
@@ -47,8 +76,11 @@ def validity(sd_field, kernels, C=1.0):
     #gy_kernel = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]) / 8.0
     gx_kernel, gy_kernel = kernels
 
-    Gx = correlate2d(sd_field, gx_kernel, mode='same', boundary='symm')
-    Gy = correlate2d(sd_field, gy_kernel, mode='same', boundary='symm')
+    #Gx = correlate2d(sd_field, gx_kernel, mode='same', boundary='symm')
+    #Gy = correlate2d(sd_field, gy_kernel, mode='same', boundary='symm')
+
+    grads = np.gradient(sd_field)
+    Gx, Gy = grads[0], grads[1]
 
     # return np.max(np.abs(Gx)) < C and np.max(np.abs(Gy))
     return (np.abs(Gx).max(), np.abs(Gy).max())
@@ -67,12 +99,10 @@ def optimize_correction(sd_field, gradient_update, C=1):
 
     G = sd_field + gradient_update
 
-    gx_kernel = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]) / 8.0
-    gy_kernel = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]) / 8.0
-    kernels = (gx_kernel, gy_kernel)
+    kernels = create_kernels(3)
 
-    #sns.heatmap(G, annot=True, fmt=".1f")
-    sns.heatmap(G, annot=False, fmt=".1f")
+    sns.heatmap(G, annot=True, fmt=".0f")
+    #sns.heatmap(G, annot=False, fmt=".1f")
     plt.show()
 
     print("sd_field validity: {}".format(validity(sd_field, kernels)))
@@ -149,9 +179,9 @@ def optimize_correction(sd_field, gradient_update, C=1):
     l[:N] = -C - Gx.ravel()
     l[N:2*N] = -C - Gy.ravel()
 
-    for i in range(N):
-        print("{} <= Sobel_x <= {}".format(l[i], u[i]))
-        print("{} <= Sobel_y <= {}".format(l[2 * i], u[2 * i]))
+    # for i in range(N):
+    #    print("{} <= Sobel_x <= {}".format(l[i], u[i]))
+    #    print("{} <= Sobel_y <= {}".format(l[2 * i], u[2 * i]))
 
     prob = osqp.OSQP()
 
@@ -165,8 +195,8 @@ def optimize_correction(sd_field, gradient_update, C=1):
 
     print("Final validity: {}".format(validity(G + X, kernels)))
 
-    #sns.heatmap(G + X, annot=True, fmt=".1f")
-    sns.heatmap(G + X, annot=False, fmt=".1f")
+    sns.heatmap(G + X, annot=True, fmt=".0f")
+    #sns.heatmap(G + X, annot=False, fmt=".1f")
     plt.show()
 
 
@@ -180,7 +210,7 @@ if __name__ == '__main__':
                   np.array((dims[0] / 2, dims[1] / 2)),
                   int(dims[0] * 0.3))
 
-    gradient[20, 20] = -10.0
-    #gradient -= np.random.random((dims[0], dims[1])) * 10.0
+    #gradient[20, 20] = 10.0
+    gradient -= np.random.random((dims[0], dims[1])) * 10.0
 
     optimize_correction(sdf, gradient)
