@@ -17,6 +17,7 @@ def gen_sdf(f, dims, *args):
     return sdf
 
 
+# not used, just an example of how it's supposed to work
 def correlate(f1, f2):
     output = np.zeros_like(f1)
 
@@ -41,9 +42,10 @@ def correlate(f1, f2):
     return output
 
 
-def validity(sd_field, C=1.0):
-    gx_kernel = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]) / 8.0
-    gy_kernel = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]) / 8.0
+def validity(sd_field, kernels, C=1.0):
+    #gx_kernel = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]) / 8.0
+    #gy_kernel = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]) / 8.0
+    gx_kernel, gy_kernel = kernels
 
     Gx = correlate2d(sd_field, gx_kernel, mode='same', boundary='symm')
     Gy = correlate2d(sd_field, gy_kernel, mode='same', boundary='symm')
@@ -65,22 +67,24 @@ def optimize_correction(sd_field, gradient_update, C=1):
 
     G = sd_field + gradient_update
 
+    gx_kernel = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]) / 8.0
+    gy_kernel = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]) / 8.0
+    kernels = (gx_kernel, gy_kernel)
+
     #sns.heatmap(G, annot=True, fmt=".1f")
     sns.heatmap(G, annot=False, fmt=".1f")
     plt.show()
 
-    print("sd_field validity: {}".format(validity(sd_field)))
-    print("G validity: {}".format(validity(G)))
+    print("sd_field validity: {}".format(validity(sd_field, kernels)))
+    print("G validity: {}".format(validity(G, kernels)))
 
     dims = 2
     N = sd_field.shape[0] * sd_field.shape[1]
 
     Q = identity(N, dtype=np.float64, format='csc')
 
-    gx_kernel = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]) / 8.0
-    gy_kernel = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]) / 8.0
-    Gx = correlate2d(G, gx_kernel, mode='same', boundary='symm')
-    Gy = correlate2d(G, gy_kernel, mode='same', boundary='symm')
+    Gx = correlate2d(G, kernels[0], mode='same', boundary='symm')
+    Gy = correlate2d(G, kernels[1], mode='same', boundary='symm')
 
     # we can write +- constraint in one,
     # so it's not 2x dims
@@ -100,28 +104,21 @@ def optimize_correction(sd_field, gradient_update, C=1):
         else:
             dc[coord] = val
 
-    k_size = gx_kernel.shape
+    hw = (kernels[0].shape[0] // 2, kernels[0].shape[1] // 2)
     for i in range(sd_field.shape[0]):
         for j in range(sd_field.shape[1]):
             base_index = index(i, j, sd_field.shape[1])
 
             kern_index = 0
-            for si in range(i - 1, i + 2):
-                for sj in range(j - 1, j + 2):
+            for si in range(i - hw[0], i + hw[1] + 1):
+                for sj in range(j - hw[0], j + hw[1] + 1):
                     a_si, a_sj = clamp(si, sj)
                     sb_index = index(a_si, a_sj, sd_field.shape[1])
 
-                    '''print("{} -- {} || (ai, aj) {}: {} | {} --> {}".format(
-                        base_index,
-                        (i, j),
-                        (a_si, a_sj),
-                        sb_index,
-                        kern_index,
-                        gx_kernel.ravel()[kern_index]))'''
-
-                    up((base_index, sb_index), gx_kernel.ravel()[kern_index])
+                    up((base_index, sb_index),
+                       kernels[0].ravel()[kern_index])
                     up((N + base_index, sb_index),
-                       gy_kernel.ravel()[kern_index])
+                       kernels[1].ravel()[kern_index])
 
                     kern_index += 1
     row_ind = []
@@ -166,7 +163,7 @@ def optimize_correction(sd_field, gradient_update, C=1):
     X = res.x.reshape(sd_field.shape)
     print(X)
 
-    print("Final validity: {}".format(validity(G + X)))
+    print("Final validity: {}".format(validity(G + X, kernels)))
 
     #sns.heatmap(G + X, annot=True, fmt=".1f")
     sns.heatmap(G + X, annot=False, fmt=".1f")
