@@ -17,7 +17,15 @@ def gen_sdf(f, dims, *args):
     return sdf
 
 
-def create_kernels(size):
+def simple_kernels():
+    #kern = np.array([[0, 0, 0], [-1, 0, 1], [0, 0, 0]], dtype=np.float64)
+    kern = np.zeros((11, 11), dtype=np.float64)
+    kern[5] = [0, 1/280, -4/105, 1/5, -4/5, 0,
+               4/5, -1/5, 4/105, -1/280, 0]
+    return kern, kern.T
+
+
+def sobel_kernels(size):
     assert size % 2 == 1
     gx = np.zeros((size, size), dtype=np.float64)
     gy = np.zeros((size, size), dtype=np.float64)
@@ -76,11 +84,8 @@ def validity(sd_field, kernels, C=1.0):
     #gy_kernel = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]) / 8.0
     gx_kernel, gy_kernel = kernels
 
-    #Gx = correlate2d(sd_field, gx_kernel, mode='same', boundary='symm')
-    #Gy = correlate2d(sd_field, gy_kernel, mode='same', boundary='symm')
-
-    grads = np.gradient(sd_field)
-    Gx, Gy = grads[0], grads[1]
+    Gx = correlate2d(sd_field, gx_kernel, mode='same', boundary='symm')
+    Gy = correlate2d(sd_field, gy_kernel, mode='same', boundary='symm')
 
     # return np.max(np.abs(Gx)) < C and np.max(np.abs(Gy))
     return (np.abs(Gx).max(), np.abs(Gy).max())
@@ -99,7 +104,8 @@ def optimize_correction(sd_field, gradient_update, C=1):
 
     G = sd_field + gradient_update
 
-    kernels = create_kernels(3)
+    #kernels = sobel_kernels(3)
+    kernels = simple_kernels()
 
     sns.heatmap(G, annot=True, fmt=".0f")
     #sns.heatmap(G, annot=False, fmt=".1f")
@@ -129,10 +135,11 @@ def optimize_correction(sd_field, gradient_update, C=1):
     dc = {}
 
     def up(coord, val):
-        if coord in dc.keys():
-            dc[coord] += val
-        else:
-            dc[coord] = val
+        if val != 0:
+            if coord in dc.keys():
+                dc[coord] += val
+            else:
+                dc[coord] = val
 
     hw = (kernels[0].shape[0] // 2, kernels[0].shape[1] // 2)
     for i in range(sd_field.shape[0]):
@@ -210,7 +217,7 @@ if __name__ == '__main__':
                   np.array((dims[0] / 2, dims[1] / 2)),
                   int(dims[0] * 0.3))
 
-    #gradient[20, 20] = 10.0
+    #gradient[18:22, 18:22] = 20.0
     gradient -= np.random.random((dims[0], dims[1])) * 10.0
 
     optimize_correction(sdf, gradient)
