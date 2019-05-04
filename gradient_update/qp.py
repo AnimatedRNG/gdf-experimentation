@@ -95,11 +95,20 @@ def index(i, j, d2):
     return i * d2 + j
 
 
-def unindex(index, d2):
-    return (index // d2, index % d2)
+def unindex(pos, d2):
+    return (pos // d2, pos % d2)
 
 
-def optimize_correction(sd_field, gradient_update, C=1):
+scale = (-4, 19)
+
+
+def plot(sdf):
+    sns.heatmap(sdf, annot=True, fmt=".0f",
+                vmin=scale[0], vmax=scale[1], center=0,
+                cmap="RdBu_r")
+
+
+def optimize_correction(sd_field, gradient_update, C=1.0):
     assert(sd_field.shape == gradient_update.shape)
 
     G = sd_field + gradient_update
@@ -107,8 +116,10 @@ def optimize_correction(sd_field, gradient_update, C=1):
     #kernels = sobel_kernels(3)
     kernels = simple_kernels()
 
-    sns.heatmap(G, annot=True, fmt=".0f")
-    #sns.heatmap(G, annot=False, fmt=".1f")
+    plot(sd_field)
+    plt.show()
+
+    plot(G)
     plt.show()
 
     print("sd_field validity: {}".format(validity(sd_field, kernels)))
@@ -193,7 +204,13 @@ def optimize_correction(sd_field, gradient_update, C=1):
     prob = osqp.OSQP()
 
     print("solving problem...")
+
     q = np.zeros(N)
+
+    # interesting idea, but just means
+    # that we tend to reverse the gradient
+    #q = -gradient_update.ravel()
+
     prob.setup(Q, q, E, l, u)
 
     res = prob.solve()
@@ -202,8 +219,7 @@ def optimize_correction(sd_field, gradient_update, C=1):
 
     print("Final validity: {}".format(validity(G + X, kernels)))
 
-    sns.heatmap(G + X, annot=True, fmt=".0f")
-    #sns.heatmap(G + X, annot=False, fmt=".1f")
+    plot(G + X)
     plt.show()
 
 
@@ -217,7 +233,7 @@ if __name__ == '__main__':
                   np.array((dims[0] / 2, dims[1] / 2)),
                   int(dims[0] * 0.3))
 
-    #gradient[18:22, 18:22] = 20.0
-    gradient -= np.random.random((dims[0], dims[1])) * 10.0
+    gradient[18:22, 18:22] = 20.0
+    #gradient -= np.random.random((dims[0], dims[1])) * 10.0
 
     optimize_correction(sdf, gradient)
