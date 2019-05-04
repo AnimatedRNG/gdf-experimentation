@@ -111,27 +111,26 @@ def plot(sdf):
 def optimize_correction(sd_field, gradient_update, C=1.0):
     assert(sd_field.shape == gradient_update.shape)
 
-    G = sd_field + gradient_update
-
     #kernels = sobel_kernels(3)
     kernels = simple_kernels()
 
     plot(sd_field)
     plt.show()
 
-    plot(G)
+    plot(sd_field + gradient_update)
     plt.show()
 
     print("sd_field validity: {}".format(validity(sd_field, kernels)))
-    print("G validity: {}".format(validity(G, kernels)))
+    print("sd_field + gradient_update validity: {}".format(
+        validity(sd_field + gradient_update, kernels)))
 
     dims = 2
     N = sd_field.shape[0] * sd_field.shape[1]
 
     Q = identity(N, dtype=np.float64, format='csc')
 
-    Gx = correlate2d(G, kernels[0], mode='same', boundary='symm')
-    Gy = correlate2d(G, kernels[1], mode='same', boundary='symm')
+    Sx = correlate2d(sd_field, kernels[0], mode='same', boundary='symm')
+    Sy = correlate2d(sd_field, kernels[1], mode='same', boundary='symm')
 
     # we can write +- constraint in one,
     # so it's not 2x dims
@@ -190,12 +189,12 @@ def optimize_correction(sd_field, gradient_update, C=1.0):
     # -C - Sobel_y(G) <= Sobel_y(x) <= C - Sobel_y(G)
 
     u = np.zeros((E_rows,), dtype=np.float64)
-    u[:N] = C - Gx.ravel()
-    u[N:2*N] = C - Gy.ravel()
+    u[:N] = C - Sx.ravel()
+    u[N:2*N] = C - Sy.ravel()
 
     l = np.zeros((E_rows), dtype=np.float64)
-    l[:N] = -C - Gx.ravel()
-    l[N:2*N] = -C - Gy.ravel()
+    l[:N] = -C - Sx.ravel()
+    l[N:2*N] = -C - Sy.ravel()
 
     # for i in range(N):
     #    print("{} <= Sobel_x <= {}".format(l[i], u[i]))
@@ -209,7 +208,7 @@ def optimize_correction(sd_field, gradient_update, C=1.0):
 
     # interesting idea, but just means
     # that we tend to reverse the gradient
-    #q = -gradient_update.ravel()
+    q = -gradient_update.ravel()
 
     prob.setup(Q, q, E, l, u)
 
@@ -217,9 +216,9 @@ def optimize_correction(sd_field, gradient_update, C=1.0):
     X = res.x.reshape(sd_field.shape)
     print(X)
 
-    print("Final validity: {}".format(validity(G + X, kernels)))
+    print("Final validity: {}".format(validity(sd_field + X, kernels)))
 
-    plot(G + X)
+    plot(sd_field + X)
     plt.show()
 
 
