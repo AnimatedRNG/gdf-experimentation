@@ -6,7 +6,7 @@ from scipy.signal import correlate2d
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-sns.set()
+sns.set(font_scale=0.5)
 
 
 def gen_sdf(f, dims, *args):
@@ -79,6 +79,15 @@ def correlate(f1, f2):
     return output
 
 
+scale = (-4, 19)
+
+
+def plot(sdf, scale=scale, center=0, fmt=".0f"):
+    sns.heatmap(sdf, annot=True, fmt=fmt,
+                vmin=scale[0], vmax=scale[1], center=center,
+                cmap="RdBu_r")
+
+
 def validity(sd_field, kernels, C=1.0):
     #gx_kernel = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]) / 8.0
     #gy_kernel = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]) / 8.0
@@ -86,6 +95,9 @@ def validity(sd_field, kernels, C=1.0):
 
     Gx = correlate2d(sd_field, gx_kernel, mode='same', boundary='symm')
     Gy = correlate2d(sd_field, gy_kernel, mode='same', boundary='symm')
+
+    #plot(Gx, [-1, 1], 0, ".2f")
+    # plt.show()
 
     # return np.max(np.abs(Gx)) < C and np.max(np.abs(Gy))
     return (np.abs(Gx).max(), np.abs(Gy).max())
@@ -97,15 +109,6 @@ def index(i, j, d2):
 
 def unindex(pos, d2):
     return (pos // d2, pos % d2)
-
-
-scale = (-4, 19)
-
-
-def plot(sdf):
-    sns.heatmap(sdf, annot=True, fmt=".0f",
-                vmin=scale[0], vmax=scale[1], center=0,
-                cmap="RdBu_r")
 
 
 def optimize_correction(sd_field, gradient_update, C=1.0):
@@ -232,7 +235,7 @@ if __name__ == '__main__':
                   np.array((dims[0] / 2, dims[1] / 2)),
                   int(dims[0] * 0.3))
 
-    gradient[18:22, 18:22] = 20.0
-    #gradient -= np.random.random((dims[0], dims[1])) * 10.0
+    #gradient[18:22, 18:22] = 20.0
+    gradient += (np.random.random((dims[0], dims[1])) - 0.5) * 10.0
 
     optimize_correction(sdf, gradient)
