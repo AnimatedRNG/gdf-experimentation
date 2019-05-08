@@ -6,7 +6,7 @@ from scipy.signal import correlate2d
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-sns.set(font_scale=0.5)
+sns.set(font_scale=2.0)
 
 
 def gen_sdf(f, dims, *args):
@@ -131,6 +131,9 @@ def optimize_correction(sd_field, gradient_update, C=1.0):
     N = sd_field.shape[0] * sd_field.shape[1]
 
     Q = identity(N, dtype=np.float64, format='csc')
+
+    threshold = 2.0
+    Q[(abs(sd_field + gradient_update).ravel()) > threshold] = 0.0
 
     Sx = correlate2d(sd_field, kernels[0], mode='same', boundary='symm')
     Sy = correlate2d(sd_field, kernels[1], mode='same', boundary='symm')
@@ -261,7 +264,7 @@ if __name__ == '__main__':
                   np.array((dims[0] / 2, dims[1] / 2)),
                   int(dims[0] * 0.3))
 
-    gradient[18:22, 18:22] = 20.0
-    #gradient += (np.random.random((dims[0], dims[1])) - 0.5) * 10.0
+    #gradient[18:22, 18:22] = 20.0
+    gradient += (np.random.random((dims[0], dims[1])) - 0.5) * 1.0
 
     optimize_correction(sdf, gradient)
