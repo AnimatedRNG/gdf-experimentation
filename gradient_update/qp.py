@@ -111,6 +111,13 @@ def unindex(pos, d2):
     return (pos // d2, pos % d2)
 
 
+def gauss(n, sigma=1):
+    r = range(-int(n/2), int(n/2)+1)
+    x = np.arange(r[0], r[1], (r[1] - r[0]) / n, dtype=np.float64)
+
+    return 1 / (sigma * np.sqrt(2*np.pi)) * np.exp(-x**2/(2*sigma**2))
+
+
 def optimize_correction(sd_field, gradient_update, C=1.0):
     assert(sd_field.shape == gradient_update.shape)
 
@@ -133,7 +140,10 @@ def optimize_correction(sd_field, gradient_update, C=1.0):
     Q = identity(N, dtype=np.float64, format='csc')
 
     threshold = 2.0
-    Q[(abs(sd_field + gradient_update).ravel()) > threshold] = 0.0
+    near_surface_mask = \
+        (abs(sd_field + gradient_update).ravel()) > threshold
+
+    Q[near_surface_mask] = 0.0
 
     Sx = correlate2d(sd_field, kernels[0], mode='same', boundary='symm')
     Sy = correlate2d(sd_field, kernels[1], mode='same', boundary='symm')
@@ -241,6 +251,7 @@ def optimize_correction(sd_field, gradient_update, C=1.0):
     # interesting idea, but just means
     # that we tend to reverse the gradient
     q = -gradient_update.ravel()
+    q[near_surface_mask] = 0.0
 
     prob.setup(Q, q, E, l, u)
 
