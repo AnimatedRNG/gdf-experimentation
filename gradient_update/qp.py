@@ -136,8 +136,8 @@ def optimize_correction(sd_field, gradient_update, C=1.0):
     Sy = correlate2d(sd_field, kernels[1], mode='same', boundary='symm')
 
     # we can write +- constraint in one,
-    # so it's not 2x dims
-    E_rows = dims * N
+    # so it's not 2x dims and we also have the two L1 constraints
+    E_rows = (dims + 2) * N
     E_cols = N
 
     def clamp(a, b): return (
@@ -170,6 +170,15 @@ def optimize_correction(sd_field, gradient_update, C=1.0):
                     up((N + base_index, sb_index),
                        kernels[1].ravel()[kern_index])
 
+                    up((2 * N + base_index, sb_index),
+                       kernels[0].ravel()[kern_index])
+                    up((2 * N + base_index, sb_index),
+                       kernels[1].ravel()[kern_index])
+                    up((3 * N + base_index, sb_index),
+                       kernels[0].ravel()[kern_index])
+                    up((3 * N + base_index, sb_index),
+                       kernels[1].ravel()[kern_index])
+
                     kern_index += 1
     row_ind = []
     col_ind = []
@@ -198,6 +207,23 @@ def optimize_correction(sd_field, gradient_update, C=1.0):
     l = np.zeros((E_rows), dtype=np.float64)
     l[:N] = -C - Sx.ravel()
     l[N:2*N] = -C - Sy.ravel()
+
+    # we also have the L1 norm constraint
+    # |d(d)/dx + d(d)/dy| >= 1
+    # Using the same logic as above
+    # |Sobel_x(G + x) + Sobel_y(G + x)| =
+    #     |Sobel_x(G) + Sobel_x(x) + Sobel_y(G) + Sobel_y(x)| >= 1
+    # -1 >= Sobel_x(G) + Sobel_x(x) + Sobel_y(G) + Sobel_y(x) >= 1
+    # -1 - Sobel_x(G) - Sobel_y(G) >= Sobel_x(x) + Sobel_y(x)
+    #                                    >= 1 - Sobel_x(G) - Sobel_y(G)
+
+    eps = 1e-5
+    u[2*N:3*N] = (1 - eps) - Sx.ravel() - Sy.ravel()
+    l[3*N:4*N] = -(1 - eps) - Sx.ravel() - Sy.ravel()
+
+    # these are harder to explain -- look at diagram
+    l[2*N:3*N] = -(2 ** 0.5 + 0.1) - Sx.ravel() - Sy.ravel()
+    u[3*N:4*N] = (2 ** 0.5 + 0.1) - Sx.ravel() - Sy.ravel()
 
     # for i in range(N):
     #    print("{} <= Sobel_x <= {}".format(l[i], u[i]))
@@ -235,7 +261,7 @@ if __name__ == '__main__':
                   np.array((dims[0] / 2, dims[1] / 2)),
                   int(dims[0] * 0.3))
 
-    #gradient[18:22, 18:22] = 20.0
-    gradient += (np.random.random((dims[0], dims[1])) - 0.5) * 10.0
+    gradient[18:22, 18:22] = 20.0
+    #gradient += (np.random.random((dims[0], dims[1])) - 0.5) * 10.0
 
     optimize_correction(sdf, gradient)
