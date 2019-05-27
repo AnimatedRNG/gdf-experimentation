@@ -125,6 +125,8 @@ namespace matmul {
                     mat(0, 2) * mat(1, 0) * mat(2, 1) -
                     mat(0, 2) * mat(2, 0) * mat(1, 1);
 
+        inv.compute_root();
+
         Expr det;
         det = 1.0f / (mat(0, 0) * inv(0, 0) +
                       mat(1, 0) * inv(0, 1) +
@@ -146,6 +148,8 @@ namespace matmul {
         Func prod;
         RDom k(0, 4);
         prod(mi, mj) = sum(a(mi, k) * b(k, mj));
+
+        prod.compute_root();
 
         return prod;
     }
