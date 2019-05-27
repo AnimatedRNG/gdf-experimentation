@@ -13,6 +13,9 @@ namespace matmul {
 
         inv(mi, mj) = 0.0f;
 
+        inv.bound(mi, 0, 4).unroll(mi);
+        inv.bound(mj, 0, 4).unroll(mj);
+
         inv(0, 0) = mat(1, 1)  * mat(2, 2) * mat(3, 3) -
                  mat(1, 1)  * mat(3, 2) * mat(2, 3) -
                  mat(1, 2)  * mat(2, 1)  * mat(3, 3) +
@@ -136,20 +139,34 @@ namespace matmul {
         Func invOut("invOut");
 
         invOut(mi, mj) = inv(mi, mj) * det;
+        invOut.bound(mi, 0, 4).unroll(mi);
+        invOut.bound(mj, 0, 4).unroll(mj);
 
         //if (det == 0) return false;
 
         return invOut;
     }
 
-    Func product(Func a, Func b) {
-        Var mi, mj;
+    Func product(Func a, Func b, unsigned int t=4) {
+        Var mi, mj, mk;
 
         Func prod;
-        RDom k(0, 4);
+        RDom k(0, Expr(t));
         prod(mi, mj) = sum(a(mi, k) * b(k, mj));
 
         prod.compute_root();
+
+        return prod;
+    }
+
+    template <typename T>
+    Func product(Func a, T b) {
+        Var mi, mj;
+
+        Func prod;
+        prod(mi, mj) = a(mi, mj) * b;
+
+        prod.compute_inline();
 
         return prod;
     }
