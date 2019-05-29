@@ -108,8 +108,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //out_(x, y, c) =
         //    matmul::product(matmul::product(Func(b), 3.0f), Func(b))(x, y);
         //out_(x, y, c) = matmul::inverse(Func(a))(x, y);
-        out_(x, y, c) = clamp(rays(x, y, 2 - c)[1], 0.0f, 1.0f);
-        //out_(x, y, c) = rays(x, y, c)[1];
+        //out_(x, y, c) = clamp(rays(x, y, 2 - c)[1], 0.0f, 1.0f);
+        out_(x, y, c) = rays(x, y, c)[1];
     }
 };
 

@@ -155,7 +155,7 @@ int main() {
 
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);
-    Buffer<float> output(200, 200, 4);
+    Buffer<float> output(200, 200, 3);
     Buffer<float> debug(4, 4);
 
     tracer_render(projection, view, 200, 200, output, debug);
