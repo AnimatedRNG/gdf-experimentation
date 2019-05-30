@@ -8,7 +8,7 @@
 
 using namespace Halide;
 
-Var x("x"), y("y"), c("c");
+Var x("x"), y("y"), c("c"), t("t");
 
 void apply_auto_schedule(Func F) {
     std::map<std::string, Internal::Function> flist =
@@ -32,11 +32,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Input<int32_t> width{"width"};
     Input<int32_t> height{"height"};
     Output<Buffer<float>> out_{"out", 3};
-    Output<Buffer<float>> debug_{"deug", 2};
+    Output<Buffer<float>> debug_{"debug", 2};
 
-    Func projection(Func proj_matrix,
-                    Func view_matrix,
-                    float near = 0.1f) {
+    std::tuple<Func, Func> projection(Func proj_matrix,
+                                      Func view_matrix,
+                                      float near = 0.1f) {
         Func rays("rays");
 
         Func ss_norm;
@@ -58,7 +58,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func view_inv("view_inv");
         view_inv =
             matmul::inverse(view_matrix);
-        debug_(x, y) = view_inv(x, y);
+        debug_(x, y) = 0.0f;
 
         RDom k(0, 4);
         Func homogeneous("homogeneous");
@@ -97,19 +97,62 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         apply_auto_schedule(projection_result);
 
-        return projection_result;
+        return std::make_tuple(projection_result, origin);
+    }
+
+    Func sphere_trace(/*Func sdf, */size_t iterations = 300, float EPS = 1e-6) {
+        Func rays("rays");
+        Func origin("origin");
+
+        std::tie(rays, origin) = projection(projection_, view_);
+
+        RDom tr(0, 300);
+        Func pos("pos");
+        Func d("d");
+        pos(x, y, c, t) = 0.0f;
+        d(x, y, c, t) = 0.0f;
+
+        pos(x, y, c, tr) = pos(x, y, c, tr - 1) +
+                           d(x, y, c, tr - 1) * rays(x, y, c)[1];
+        /*d(x, y, c, tr) = sdf(pos(x, y, 0, tr),
+                             pos(x, y, 1, tr),
+                             pos(x, y, 2, tr));*/
+        d(x, y, c, tr) = Halide::sqrt(
+                             pos(x, y, 0, tr) * pos(x, y, 0, tr) +
+                             pos(x, y, 1, tr) * pos(x, y, 1, tr) +
+                             pos(x, y, 2, tr) * pos(x, y, 2, tr)
+                         ) - 3.0f;
+        pos(x, y, c, 0) = rays(x, y, c)[0];
+
+        Func endpoint("endpoint");
+        endpoint(x, y, c) = d(x, y, c, 300);
+
+        return endpoint;
     }
 
     void generate() {
         Func rays("rays");
-        rays = projection(projection_, view_);
+        Func origin("origin");
+        std::tie(rays, origin) = projection(projection_, view_);
         rays.compute_root();
+
+        Func sphere_sdf("sphere_sdf");
+        float radius = 3.0f;
+
+        /*Expr xf("xf"), yf("yf"), zf("zf");
+        sphere_sdf(xf, yf, zf) =
+            Halide::sqrt(
+            xf * xf + yf * yf + zf * zf) - radius;*/
+
+        Func end("end");
+        end(x, y, c) = sphere_trace()(x, y, c);
 
         //out_(x, y, c) =
         //    matmul::product(matmul::product(Func(b), 3.0f), Func(b))(x, y);
         //out_(x, y, c) = matmul::inverse(Func(a))(x, y);
         //out_(x, y, c) = clamp(rays(x, y, 2 - c)[1], 0.0f, 1.0f);
-        out_(x, y, c) = rays(x, y, c)[1];
+        //out_(x, y, c) = rays(x, y, c)[1];
+        out_(x, y, c) = end(x, y, c);
     }
 };
 
