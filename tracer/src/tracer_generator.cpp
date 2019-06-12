@@ -1,4 +1,5 @@
 #include <iostream>
+#include <tuple>
 
 #include "Halide.h"
 
@@ -34,9 +35,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Output<Buffer<float>> out_{"out", 3};
     Output<Buffer<float>> debug_{"debug", 2};
 
-    std::tuple<Func, Func> projection(Func proj_matrix,
-                                      Func view_matrix,
-                                      float near = 0.1f) {
+    std::tuple<std::tuple<Func, Func>, Func> projection(Func proj_matrix,
+            Func view_matrix,
+            float near = 0.1f) {
         // TODO: Get rid of scheduling calls
         Func rays("rays");
 
@@ -82,58 +83,79 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func ray_vec("ray_vec");
         RDom norm_k(0, 3);
         // could use fast inverse sqrt, but not worth accuracy loss
-        ray_vec(x, y, c) = projected(x, y, c) / Halide::sqrt(sum(
-                               projected(x, y, norm_k) *
-                               projected(x, y, norm_k)));
-        ray_vec.bound(c, 0, 4).unroll(c);
+        Expr ray_vec_norm = Halide::sqrt(sum(
+                                             projected(x, y, norm_k) *
+                                             projected(x, y, norm_k)));
+        ray_vec(x, y) = Tuple(projected(x, y, 0) / ray_vec_norm,
+                              projected(x, y, 1) / ray_vec_norm,
+                              projected(x, y, 2) / ray_vec_norm);
         projected.compute_at(ray_vec, x);
 
         Func ray_pos("ray_pos");
-        ray_pos(x, y, c) = origin(c) + ray_vec(x, y, c) * near;
+        //ray_pos(x, y, c) = origin(c) + ray_vec(x, y, c) * near;
+        ray_pos(x, y) = Tuple(origin(0) + ray_vec(x, y)[0] * near,
+                              origin(1) + ray_vec(x, y)[1] * near,
+                              origin(2) + ray_vec(x, y)[2] * near);
 
-        Func projection_result("projection_result");
-        projection_result(x, y, c) = {ray_pos(x, y, c), ray_vec(x, y, c)};
-        ray_vec.compute_at(projection_result, x);
-        ray_pos.compute_at(projection_result, x);
+        //Func projection_result("projection_result");
+        //projection_result(x, y) = {ray_pos(x, y), ray_vec(x, y)};
+        //ray_vec.compute_at(projection_result, x);
+        //ray_pos.compute_at(projection_result, x);
 
-        apply_auto_schedule(projection_result);
+        //apply_auto_schedule(projection_result);
+
+        std::tuple<Func, Func> projection_result(ray_pos, ray_vec);
+        apply_auto_schedule(ray_pos);
+        apply_auto_schedule(ray_vec);
 
         return std::make_tuple(projection_result, origin);
     }
 
     Func sphere_trace(/*Func sdf, */size_t iterations = 300, float EPS = 1e-6) {
         // TODO: Make c a tuple again :/
-        Func rays("rays");
+        //Func rays("rays");
+        Func original_ray_pos("original_ray_pos");
+        Func ray_vec("ray_vec");
         Func origin("origin");
 
-        std::tie(rays, origin) = projection(projection_, view_);
-
+        std::forward_as_tuple(std::tie(original_ray_pos,
+                                       ray_vec), origin) =
+                                           projection(projection_, view_);
         RDom tr(0, 300);
         Func pos("pos");
         Expr d("d");
 
         // Remember how update definitions work
-        pos(x, y, c, t) = 0.0f;
-        pos(x, y, c, 0) = rays(x, y, c)[0];
+        pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
+        pos(x, y, 0) = original_ray_pos(x, y);
         d = Halide::sqrt(
-                pos(x, y, 0, tr - 1) * pos(x, y, 0, tr - 1) +
-                pos(x, y, 1, tr - 1) * pos(x, y, 1, tr - 1) +
-                pos(x, y, 2, tr - 1) * pos(x, y, 2, tr - 1)
-                ) - 3.0f;
-        pos(x, y, c, tr) = pos(x, y, c, tr - 1) +
-                           d * rays(x, y, c)[1];
+                pos(x, y, tr)[0] * pos(x, y, tr)[0] +
+                pos(x, y, tr)[1] * pos(x, y, tr)[1] +
+                pos(x, y, tr)[2] * pos(x, y, tr)[2]) - 3.0f;
+        //pos(x, y, c, tr) = pos(x, y, c, tr - 1) +
+        //                   d * rays(x, y, c)[1];
+        pos(x, y, tr + 1) = Tuple(
+                             pos(x, y, tr)[0] + d * ray_vec(x, y)[0],
+                             pos(x, y, tr)[1] + d * ray_vec(x, y)[1],
+                             pos(x, y, tr)[2] + d * ray_vec(x, y)[2]);
 
         Func endpoint("endpoint");
-        endpoint(x, y, c) = pos(x, y, c, 300);
+        //endpoint(x, y, c) = pos(x, y, c, 300);
+        endpoint(x, y) = pos(x, y, 300);
 
         return endpoint;
     }
 
     void generate() {
-        Func rays("rays");
+        Func original_ray_pos("original_ray_pos");
+        Func original_ray_vec("original_ray_vec");
         Func origin("origin");
-        std::tie(rays, origin) = projection(projection_, view_);
-        rays.compute_root();
+
+        std::forward_as_tuple(std::tie(original_ray_pos,
+                                       original_ray_vec), origin) =
+                                           projection(projection_, view_);
+        original_ray_pos.compute_root();
+        original_ray_vec.compute_root();
 
         Func sphere_sdf("sphere_sdf");
         float radius = 3.0f;
@@ -144,14 +166,18 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             xf * xf + yf * yf + zf * zf) - radius;*/
 
         Func end("end");
-        end(x, y, c) = sphere_trace()(x, y, c);
+        end(x, y) = sphere_trace()(x, y);
 
         //out_(x, y, c) =
         //    matmul::product(matmul::product(Func(b), 3.0f), Func(b))(x, y);
         //out_(x, y, c) = matmul::inverse(Func(a))(x, y);
         //out_(x, y, c) = clamp(rays(x, y, 2 - c)[1], 0.0f, 1.0f);
         //out_(x, y, c) = rays(x, y, c)[1];
-        out_(x, y, c) = end(x, y, c);
+
+        out_(x, y, c) = 0.0f;
+        out_(x, y, 0) = clamp(end(x, y)[0], 0.0f, 1.0f);
+        out_(x, y, 1) = clamp(end(x, y)[1], 0.0f, 1.0f);
+        out_(x, y, 2) = clamp(end(x, y)[2], 0.0f, 1.0f);
     }
 };
 

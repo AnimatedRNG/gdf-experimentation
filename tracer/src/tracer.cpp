@@ -173,8 +173,8 @@ int main() {
                     << "("
                     << output(i, j, 0) << ", "
                     << output(i, j, 1) << ", "
-                    << output(i, j, 2) << ", "
-                    << output(i, j, 3) << ") ";
+                    << output(i, j, 2) << ", ";
+                //<< output(i, j, 3) << ") ";
         }
         std::cout << std::endl;
     }
