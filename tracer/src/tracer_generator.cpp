@@ -37,6 +37,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     std::tuple<Func, Func> projection(Func proj_matrix,
                                       Func view_matrix,
                                       float near = 0.1f) {
+        // TODO: Get rid of scheduling calls
         Func rays("rays");
 
         Func ss_norm;
@@ -101,6 +102,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     Func sphere_trace(/*Func sdf, */size_t iterations = 300, float EPS = 1e-6) {
+        // TODO: Make c a tuple again :/
         Func rays("rays");
         Func origin("origin");
 
@@ -108,24 +110,21 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         RDom tr(0, 300);
         Func pos("pos");
-        Func d("d");
-        pos(x, y, c, t) = 0.0f;
-        d(x, y, c, t) = 0.0f;
+        Expr d("d");
 
-        pos(x, y, c, tr) = pos(x, y, c, tr - 1) +
-                           d(x, y, c, tr - 1) * rays(x, y, c)[1];
-        /*d(x, y, c, tr) = sdf(pos(x, y, 0, tr),
-                             pos(x, y, 1, tr),
-                             pos(x, y, 2, tr));*/
-        d(x, y, c, tr) = Halide::sqrt(
-                             pos(x, y, 0, tr) * pos(x, y, 0, tr) +
-                             pos(x, y, 1, tr) * pos(x, y, 1, tr) +
-                             pos(x, y, 2, tr) * pos(x, y, 2, tr)
-                         ) - 3.0f;
+        // Remember how update definitions work
+        pos(x, y, c, t) = 0.0f;
         pos(x, y, c, 0) = rays(x, y, c)[0];
+        d = Halide::sqrt(
+                pos(x, y, 0, tr - 1) * pos(x, y, 0, tr - 1) +
+                pos(x, y, 1, tr - 1) * pos(x, y, 1, tr - 1) +
+                pos(x, y, 2, tr - 1) * pos(x, y, 2, tr - 1)
+                ) - 3.0f;
+        pos(x, y, c, tr) = pos(x, y, c, tr - 1) +
+                           d * rays(x, y, c)[1];
 
         Func endpoint("endpoint");
-        endpoint(x, y, c) = d(x, y, c, 300);
+        endpoint(x, y, c) = pos(x, y, c, 300);
 
         return endpoint;
     }
