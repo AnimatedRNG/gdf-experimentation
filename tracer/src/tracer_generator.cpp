@@ -112,8 +112,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     Func sphere_trace(/*Func sdf, */size_t iterations = 300, float EPS = 1e-6) {
-        // TODO: Make c a tuple again :/
-        //Func rays("rays");
         Func original_ray_pos("original_ray_pos");
         Func ray_vec("ray_vec");
         Func origin("origin");
@@ -124,6 +122,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         RDom tr(0, 300);
         Func pos("pos");
         Expr d("d");
+        Func depth("depth");
 
         // Remember how update definitions work
         pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
@@ -132,16 +131,22 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                 pos(x, y, tr)[0] * pos(x, y, tr)[0] +
                 pos(x, y, tr)[1] * pos(x, y, tr)[1] +
                 pos(x, y, tr)[2] * pos(x, y, tr)[2]) - 3.0f;
-        //pos(x, y, c, tr) = pos(x, y, c, tr - 1) +
-        //                   d * rays(x, y, c)[1];
         pos(x, y, tr + 1) = Tuple(
                              pos(x, y, tr)[0] + d * ray_vec(x, y)[0],
                              pos(x, y, tr)[1] + d * ray_vec(x, y)[1],
                              pos(x, y, tr)[2] + d * ray_vec(x, y)[2]);
+        Var xi, xo, yi, yo;
+        //depth(x, y, t) = 0.0f;
+        //depth(x, y, tr + 1) = d;
+        //original_ray_pos.compute_at(pos, x);
 
         Func endpoint("endpoint");
-        //endpoint(x, y, c) = pos(x, y, c, 300);
-        endpoint(x, y) = pos(x, y, 300);
+        endpoint(x, y) = pos(x, y, (int) iterations);
+        /*endpoint(x, y) = {depth(x, y, 300),
+                          depth(x, y, 300),
+                          depth(x, y, 300)};*/
+        endpoint.compute_root();
+        pos.compute_at(endpoint, x);
 
         return endpoint;
     }
