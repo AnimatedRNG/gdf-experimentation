@@ -25,6 +25,13 @@ void apply_auto_schedule(Func F) {
     std::cout << std::endl;
 }
 
+Expr example_sphere(Tuple position) {
+    return Halide::sqrt(
+               position[0] * position[0] +
+               position[1] * position[1] +
+               position[2] * position[2]) - 3.0f;
+}
+
 class TracerGenerator : public Halide::Generator<TracerGenerator> {
   public:
 
@@ -111,7 +118,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return std::make_tuple(projection_result, origin);
     }
 
-    Func sphere_trace(/*Func sdf, */size_t iterations = 300, float EPS = 1e-6) {
+    Func sphere_trace(std::function<Expr(Tuple)> sdf, int iterations = 300,
+                      float EPS = 1e-6) {
         Func original_ray_pos("original_ray_pos");
         Func ray_vec("ray_vec");
         Func origin("origin");
@@ -119,7 +127,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         std::forward_as_tuple(std::tie(original_ray_pos,
                                        ray_vec), origin) =
                                            projection(projection_, view_);
-        RDom tr(0, (int) iterations);
+        RDom tr(0, iterations);
         Func pos("pos");
         Expr d("d");
         Func depth("depth");
@@ -127,24 +135,22 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         // Remember how update definitions work
         pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
         pos(x, y, 0) = original_ray_pos(x, y);
-        d = Halide::sqrt(
-                pos(x, y, tr)[0] * pos(x, y, tr)[0] +
-                pos(x, y, tr)[1] * pos(x, y, tr)[1] +
-                pos(x, y, tr)[2] * pos(x, y, tr)[2]) - 3.0f;
+        d = sdf(pos(x, y, tr));
         pos(x, y, tr + 1) = Tuple(
-                             pos(x, y, tr)[0] + d * ray_vec(x, y)[0],
-                             pos(x, y, tr)[1] + d * ray_vec(x, y)[1],
-                             pos(x, y, tr)[2] + d * ray_vec(x, y)[2]);
+                                pos(x, y, tr)[0] + d * ray_vec(x, y)[0],
+                                pos(x, y, tr)[1] + d * ray_vec(x, y)[1],
+                                pos(x, y, tr)[2] + d * ray_vec(x, y)[2]);
         //pos.trace_stores();
         Var xi, xo, yi, yo;
         depth(x, y, t) = 0.0f;
         depth(x, y, tr + 1) = d;
 
         Func endpoint("endpoint");
-        //endpoint(x, y) = pos(x, y, (int) iterations);
-        endpoint(x, y) = {depth(x, y, (int) iterations),
-                          depth(x, y, (int) iterations),
-                          depth(x, y, (int) iterations)};
+        //endpoint(x, y) = pos(x, y, iterations);
+        endpoint(x, y) = {depth(x, y, iterations),
+                          depth(x, y, iterations),
+                          depth(x, y, iterations)
+                         };
         endpoint.compute_root();
         pos.unroll(t);
         pos.compute_at(endpoint, x);
@@ -173,7 +179,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             xf * xf + yf * yf + zf * zf) - radius;*/
 
         Func end("end");
-        end(x, y) = sphere_trace()(x, y);
+        end(x, y) = sphere_trace(example_sphere)(x, y);
 
         //out_(x, y, c) =
         //    matmul::product(matmul::product(Func(b), 3.0f), Func(b))(x, y);
