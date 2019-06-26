@@ -11,6 +11,14 @@ using namespace Halide;
 
 Var x("x"), y("y"), c("c"), t("t");
 
+typedef struct {
+    //std::function<Expr(Tuple)> function;
+    Halide::Buffer<float> buffer;
+    float x0, y0, z0;
+    float x1, y1, z1;
+    bool is_grid;
+} GridSDF;
+
 void apply_auto_schedule(Func F) {
     std::map<std::string, Internal::Function> flist =
         Internal::find_transitive_calls(
@@ -127,7 +135,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return Halide::max(a, 0);
     }
 
-    Expr normal_pdf_rectified(Expr x, float sigma=1e-2f, float mean=0.0f) {
+    Expr normal_pdf_rectified(Expr x, float sigma = 1e-2f, float mean = 0.0f) {
         return normal_pdf(relu(x), sigma, mean);
     }
 
