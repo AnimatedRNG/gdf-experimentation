@@ -45,15 +45,15 @@ Expr trilinear(const GridSDF& sdf, Tuple position) {
 
     // floor and ceil slow?
     Tuple lp = {
-        cast<int32_t>(Halide::floor(grid_space[0])),
-        cast<int32_t>(Halide::floor(grid_space[1])),
-        cast<int32_t>(Halide::floor(grid_space[2])),
+        clamp(cast<int32_t>(Halide::floor(grid_space[0])), 0, sdf.nx - 1),
+        clamp(cast<int32_t>(Halide::floor(grid_space[1])), 0, sdf.ny - 1),
+        clamp(cast<int32_t>(Halide::floor(grid_space[2])), 0, sdf.nz - 1),
     };
 
     Tuple up = {
-        cast<int32_t>(Halide::ceil(grid_space[0])),
-        cast<int32_t>(Halide::ceil(grid_space[1])),
-        cast<int32_t>(Halide::ceil(grid_space[2])),
+        clamp(cast<int32_t>(Halide::ceil(grid_space[0])), 0, sdf.nx - 1),
+        clamp(cast<int32_t>(Halide::ceil(grid_space[1])), 0, sdf.ny - 1),
+        clamp(cast<int32_t>(Halide::ceil(grid_space[2])), 0, sdf.nz - 1),
     };
 
     Tuple alpha = {
@@ -221,10 +221,15 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Expr d("d");
         Func depth("depth");
 
+        // debug
+        GridSDF grid_sdf = to_grid_sdf(example_sphere,
+                                       -4.0, -4.0, -4.0, 4.0, 4.0, 4.0, 32, 32, 32);
+
         // Remember how update definitions work
         pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
         pos(x, y, 0) = original_ray_pos(x, y);
-        d = sdf(pos(x, y, tr));
+        //d = sdf(pos(x, y, tr));
+        d = trilinear(grid_sdf, pos(x, y, tr));
         pos(x, y, tr + 1) = Tuple(
                                 pos(x, y, tr)[0] + d * ray_vec(x, y)[0],
                                 pos(x, y, tr)[1] + d * ray_vec(x, y)[1],
@@ -235,11 +240,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         depth(x, y, tr + 1) = d;
 
         Func endpoint("endpoint");
-        //endpoint(x, y) = pos(x, y, iterations);
-        endpoint(x, y) = {depth(x, y, iterations),
+        endpoint(x, y) = pos(x, y, iterations);
+        /*endpoint(x, y) = {depth(x, y, iterations),
                           depth(x, y, iterations),
                           depth(x, y, iterations)
-                         };
+                          };*/
         endpoint.compute_root();
         pos.unroll(t);
         pos.compute_at(endpoint, x);
