@@ -10,18 +10,19 @@
 using namespace Halide;
 
 Var x("x"), y("y"), c("c"), t("t");
+Var dx("dx"), dy("dy"), dz("dz");
 
 typedef struct {
     Halide::Buffer<float> buffer;
     float x0, y0, z0;
     float x1, y1, z1;
+    int nx, ny, nz;
 } GridSDF;
 
 // For debugging analytical functions
 GridSDF to_grid_sdf(std::function<Expr(Tuple)> sdf, float x0, float y0,
                     float z0, float x1, float y1,
                     float z1, int nx, int ny, int nz) {
-    Var dx("dx"), dy("dy"), dz("dz");
     Func field_func("field_func");
     field_func(dx, dy, dz) = sdf({
         (dx / (float) nx) * (x1 - x0) + x0,
@@ -30,8 +31,60 @@ GridSDF to_grid_sdf(std::function<Expr(Tuple)> sdf, float x0, float y0,
     });
     Halide::Buffer<float> buffer = field_func.realize(nx, ny, nz);
     return GridSDF {
-        buffer, x0, y0, z0, x1, y1, z1
+        buffer, x0, y0, z0, x1, y1, z1, nx, ny, nz
     };
+}
+
+// effectively converts a GridSDF into a regular SDF
+Expr trilinear(const GridSDF& sdf, Tuple position) {
+    Tuple grid_space = {
+        ((position[0] - sdf.x0) / (sdf.x1 - sdf.x0))* ((float) sdf.nx),
+        ((position[1] - sdf.y0) / (sdf.y1 - sdf.y0))* ((float) sdf.ny),
+        ((position[2] - sdf.z0) / (sdf.z1 - sdf.z0))* ((float) sdf.nz)
+    };
+
+    // floor and ceil slow?
+    Tuple lp = {
+        cast<int32_t>(Halide::floor(grid_space[0])),
+        cast<int32_t>(Halide::floor(grid_space[1])),
+        cast<int32_t>(Halide::floor(grid_space[2])),
+    };
+
+    Tuple up = {
+        cast<int32_t>(Halide::ceil(grid_space[0])),
+        cast<int32_t>(Halide::ceil(grid_space[1])),
+        cast<int32_t>(Halide::ceil(grid_space[2])),
+    };
+
+    Tuple alpha = {
+        grid_space[0] - lp[0],
+        grid_space[1] - lp[1],
+        grid_space[2] - lp[2],
+    };
+
+    Expr c000 = sdf.buffer(lp[0], lp[1], lp[2]);
+    Expr c001 = sdf.buffer(lp[0], lp[1], up[2]);
+    Expr c010 = sdf.buffer(lp[0], up[1], lp[2]);
+    Expr c011 = sdf.buffer(lp[0], up[1], up[2]);
+    Expr c100 = sdf.buffer(up[0], lp[1], lp[2]);
+    Expr c101 = sdf.buffer(up[0], lp[1], up[2]);
+    Expr c110 = sdf.buffer(up[0], up[1], lp[2]);
+    Expr c111 = sdf.buffer(up[0], up[1], up[2]);
+
+    // interpolate on x
+    Expr c00 = Halide::lerp(c000, c100, alpha[0]);
+    Expr c01 = Halide::lerp(c001, c101, alpha[0]);
+    Expr c10 = Halide::lerp(c010, c110, alpha[0]);
+    Expr c11 = Halide::lerp(c011, c111, alpha[0]);
+
+    // interpolate on y
+    Expr c0 = Halide::lerp(c00, c10, alpha[1]);
+    Expr c1 = Halide::lerp(c01, c11, alpha[1]);
+
+    // interpolate on z
+    Expr c = Halide::lerp(c0, c1, alpha[2]);
+
+    return c;
 }
 
 void apply_auto_schedule(Func F) {
@@ -208,8 +261,13 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         Func end("end");
         end(x, y) = sphere_trace(example_sphere)(x, y);
-        to_grid_sdf(example_sphere,
-                    -4.0, -4.0, -4.0, 4.0, 4.0, 4.0, 32, 32, 32);
+        GridSDF grid_sdf = to_grid_sdf(example_sphere,
+                                       -4.0, -4.0, -4.0, 4.0, 4.0, 4.0, 32, 32, 32);
+
+        /*Func val("val");
+        val(dx) = trilinear(grid_sdf, {-3.5f, -3.5f, -3.5f});
+        std::cout << "at (-3.5, -3.5, -3.5) " << Buffer<float>(val.realize(1))(0) <<
+        std::endl;*/
 
         //out_(x, y, c) =
         //    matmul::product(matmul::product(Func(b), 3.0f), Func(b))(x, y);
