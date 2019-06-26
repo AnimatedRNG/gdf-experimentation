@@ -26,12 +26,15 @@ int main() {
         {-0.3166, 1.1503, 8.8977, 1.0}
     };
 
+    int width = 200;
+    int height = 200;
+
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);
-    Buffer<float> output(200, 200, 3);
+    Buffer<float> output(width, height, 3);
     Buffer<float> debug(4, 4);
 
-    tracer_render(projection, view, 200, 200, output, debug);
+    tracer_render(projection, view, width, height, output, debug);
 
     for (int i = 0; i < 4; i++) {
         for (int j = 0; j < 4; j++) {

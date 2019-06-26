@@ -119,7 +119,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         std::forward_as_tuple(std::tie(original_ray_pos,
                                        ray_vec), origin) =
                                            projection(projection_, view_);
-        RDom tr(0, 300);
+        RDom tr(0, (int) iterations);
         Func pos("pos");
         Expr d("d");
         Func depth("depth");
@@ -135,18 +135,20 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                              pos(x, y, tr)[0] + d * ray_vec(x, y)[0],
                              pos(x, y, tr)[1] + d * ray_vec(x, y)[1],
                              pos(x, y, tr)[2] + d * ray_vec(x, y)[2]);
+        //pos.trace_stores();
         Var xi, xo, yi, yo;
-        //depth(x, y, t) = 0.0f;
-        //depth(x, y, tr + 1) = d;
-        //original_ray_pos.compute_at(pos, x);
+        depth(x, y, t) = 0.0f;
+        depth(x, y, tr + 1) = d;
 
         Func endpoint("endpoint");
-        endpoint(x, y) = pos(x, y, (int) iterations);
-        /*endpoint(x, y) = {depth(x, y, 300),
-                          depth(x, y, 300),
-                          depth(x, y, 300)};*/
+        //endpoint(x, y) = pos(x, y, (int) iterations);
+        endpoint(x, y) = {depth(x, y, (int) iterations),
+                          depth(x, y, (int) iterations),
+                          depth(x, y, (int) iterations)};
         endpoint.compute_root();
+        pos.unroll(t);
         pos.compute_at(endpoint, x);
+        pos.store_at(endpoint, x);
 
         return endpoint;
     }
