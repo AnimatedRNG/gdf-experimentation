@@ -118,6 +118,19 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return std::make_tuple(projection_result, origin);
     }
 
+    Expr normal_pdf(Expr x, float sigma = 1e-7f, float mean = 0.0f) {
+        return (1.0f / Halide::sqrt(2.0f * (float) M_PI * sigma * sigma)) *
+               Halide::exp((x - mean) * (x - mean) / (-2.0f * sigma * sigma));
+    }
+
+    Expr relu(Expr a) {
+        return Halide::max(a, 0);
+    }
+
+    Expr normal_pdf_rectified(Expr x, float sigma=1e-2f, float mean=0.0f) {
+        return normal_pdf(relu(x), sigma, mean);
+    }
+
     Func sphere_trace(std::function<Expr(Tuple)> sdf, int iterations = 300,
                       float EPS = 1e-6) {
         Func original_ray_pos("original_ray_pos");
