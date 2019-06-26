@@ -12,12 +12,27 @@ using namespace Halide;
 Var x("x"), y("y"), c("c"), t("t");
 
 typedef struct {
-    //std::function<Expr(Tuple)> function;
     Halide::Buffer<float> buffer;
     float x0, y0, z0;
     float x1, y1, z1;
-    bool is_grid;
 } GridSDF;
+
+// For debugging analytical functions
+GridSDF to_grid_sdf(std::function<Expr(Tuple)> sdf, float x0, float y0,
+                    float z0, float x1, float y1,
+                    float z1, int nx, int ny, int nz) {
+    Var dx("dx"), dy("dy"), dz("dz");
+    Func field_func("field_func");
+    field_func(dx, dy, dz) = sdf({
+        (dx / (float) nx) * (x1 - x0) + x0,
+        (dy / (float) ny) * (y1 - y0) + y0,
+        (dz / (float) nz) * (z1 - z0) + z0
+    });
+    Halide::Buffer<float> buffer = field_func.realize(nx, ny, nz);
+    return GridSDF {
+        buffer, x0, y0, z0, x1, y1, z1
+    };
+}
 
 void apply_auto_schedule(Func F) {
     std::map<std::string, Internal::Function> flist =
@@ -191,16 +206,10 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         original_ray_pos.compute_root();
         original_ray_vec.compute_root();
 
-        Func sphere_sdf("sphere_sdf");
-        float radius = 3.0f;
-
-        /*Expr xf("xf"), yf("yf"), zf("zf");
-        sphere_sdf(xf, yf, zf) =
-            Halide::sqrt(
-            xf * xf + yf * yf + zf * zf) - radius;*/
-
         Func end("end");
         end(x, y) = sphere_trace(example_sphere)(x, y);
+        to_grid_sdf(example_sphere,
+                    -4.0, -4.0, -4.0, 4.0, 4.0, 4.0, 32, 32, 32);
 
         //out_(x, y, c) =
         //    matmul::product(matmul::product(Func(b), 3.0f), Func(b))(x, y);
