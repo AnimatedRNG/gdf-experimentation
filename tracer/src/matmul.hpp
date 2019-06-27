@@ -192,6 +192,19 @@ class TupleVec final {
         }
         _data = Tuple(data);
     }
+    template <class T, typename = std::enable_if< std::is_convertible<T, Expr>::value, T >>
+    explicit TupleVec(T const& single_dim) : TupleVec(Expr(single_dim)) { }
+    TupleVec(std::initializer_list<Expr> list) : _data(list) {
+        if (list.size() != N) {
+            throw std::out_of_range("template size does not match runtime tuple size!");
+        }
+    }
+    template <class T, typename = std::enable_if< std::is_convertible<T, Expr>::value, T >>
+    TupleVec(std::initializer_list<T> list) : _data(list) {
+        if (list.size() != N) {
+            throw std::out_of_range("template size does not match runtime tuple size!");
+        }
+    }
 
     TupleVec(TupleVec const&) = default;
     TupleVec(TupleVec&&) = default;
@@ -396,4 +409,34 @@ Expr norm(Tuple const& vec) {
 template <unsigned int N>
 Expr norm(TupleVec<N> const& vec) {
     return norm(vec.get());
+}
+
+Tuple apply(Tuple const& vec, std::function<Expr(const Expr&)> f) {
+    std::vector<Expr> result(vec.size());
+
+    for (unsigned int i = 0; i < vec.size(); i++) {
+        result[i] = f(vec[i]);
+    }
+
+    return Tuple(result);
+}
+
+template <unsigned int N>
+TupleVec<N> apply(TupleVec<N> const& vec, std::function<Expr(const Expr&)> f) {
+    return apply(vec.get(), f);
+}
+
+Tuple apply(Tuple const& vec, std::function<Expr(const Expr&, unsigned int)> f) {
+    std::vector<Expr> result(vec.size());
+
+    for (unsigned int i = 0; i < vec.size(); i++) {
+        result[i] = f(vec[i], i);
+    }
+
+    return Tuple(result);
+}
+
+template <unsigned int N>
+TupleVec<N> apply(TupleVec<N> const& vec, std::function<Expr(const Expr&, unsigned int)> f) {
+    return apply(vec.get(), f);
 }
