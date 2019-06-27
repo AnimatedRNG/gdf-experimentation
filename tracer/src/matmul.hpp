@@ -479,6 +479,17 @@ Expr norm(TupleVec<N> const& vec) {
     return norm(vec.get());
 }
 
+template <unsigned int N>
+TupleVec<N> build(std::function<Expr(unsigned int)> f) {
+    std::vector<Expr> result(N);
+
+    for (unsigned int i = 0; i < N; i++) {
+        result[i] = f(i);
+    }
+
+    return TupleVec<N>(Tuple(result));
+}
+
 Tuple apply(Tuple const& vec, std::function<Expr(const Expr&)> f) {
     std::vector<Expr> result(vec.size());
 
@@ -491,7 +502,7 @@ Tuple apply(Tuple const& vec, std::function<Expr(const Expr&)> f) {
 
 template <unsigned int N>
 TupleVec<N> apply(TupleVec<N> const& vec, std::function<Expr(const Expr&)> f) {
-    return apply(vec.get(), f);
+    return TupleVec<N>(apply(vec.get(), f));
 }
 
 Tuple apply(Tuple const& vec, std::function<Expr(const Expr&, unsigned int)> f) {
@@ -506,5 +517,5 @@ Tuple apply(Tuple const& vec, std::function<Expr(const Expr&, unsigned int)> f) 
 
 template <unsigned int N>
 TupleVec<N> apply(TupleVec<N> const& vec, std::function<Expr(const Expr&, unsigned int)> f) {
-    return apply(vec.get(), f);
+    return TupleVec<N>(apply(vec.get(), f));
 }
