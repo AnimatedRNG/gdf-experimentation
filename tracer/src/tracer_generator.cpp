@@ -9,8 +9,11 @@
 
 using namespace Halide;
 
+constexpr static int iterations = 300;
+
 Var x("x"), y("y"), c("c"), t("t");
 Var dx("dx"), dy("dy"), dz("dz");
+RDom tr;
 
 typedef struct {
     Halide::Buffer<float> buffer;
@@ -207,7 +210,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return normal_pdf(relu(x), sigma, mean);
     }
 
-    Func sphere_trace(std::function<Expr(Tuple)> sdf, int iterations = 300,
+    Func sphere_trace(std::function<Expr(Tuple)> sdf,
                       float EPS = 1e-6) {
         Func original_ray_pos("original_ray_pos");
         Func ray_vec("ray_vec");
@@ -216,7 +219,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         std::forward_as_tuple(std::tie(original_ray_pos,
                                        ray_vec), origin) =
                                            projection(projection_, view_);
-        RDom tr(0, iterations);
         Func pos("pos");
         Expr d("d");
         Func depth("depth");
@@ -254,6 +256,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     void generate() {
+        tr = RDom(0, iterations);
+
         Func original_ray_pos("original_ray_pos");
         Func original_ray_vec("original_ray_vec");
         Func origin("origin");
