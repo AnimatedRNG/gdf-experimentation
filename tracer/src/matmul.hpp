@@ -360,7 +360,7 @@ Expr dot(Tuple const& lhs, Tuple const& rhs) {
     if (lhs.size() == rhs.size()) {
         Expr result = lhs[0] * rhs[0];
         for (unsigned int i = 1; i < lhs.size(); i++) {
-            result += lhs[i] + rhs[i];
+            result += lhs[i] * rhs[i];
         }
 
         return result;
@@ -382,4 +382,18 @@ Expr dot(TupleVec<N> const& lhs, Tuple const& rhs) {
 template <unsigned int N>
 Expr dot(Tuple const& lhs, TupleVec<N> const& rhs) {
     return dot(lhs, rhs.get());
+}
+
+Expr norm(Tuple const& vec) {
+    Expr result = vec[0] * vec[0];
+    for (unsigned int i = 1; i < vec.size(); i++) {
+        result += vec[i] * vec[i];
+    }
+
+    return Halide::sqrt(result);
+}
+
+template <unsigned int N>
+Expr norm(TupleVec<N> const& vec) {
+    return norm(vec.get());
 }
