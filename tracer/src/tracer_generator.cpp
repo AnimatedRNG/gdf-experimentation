@@ -16,7 +16,7 @@ Var dx("dx"), dy("dy"), dz("dz");
 RDom tr;
 
 typedef struct {
-    Halide::Buffer<float> buffer;
+    Halide::Func buffer;
     TupleVec<3> p0;
     TupleVec<3> p1;
     TupleVec<3> n;
@@ -36,7 +36,7 @@ GridSDF to_grid_sdf(std::function<Expr(TupleVec<3>)> sdf,
     Halide::Buffer<float> buffer = field_func.realize(nx, ny, nz);
 
     return GridSDF {
-        buffer, p0, p1, TupleVec<3>({nx, ny, nz})
+        Func(buffer), p0, p1, TupleVec<3>({nx, ny, nz})
     };
 }
 
