@@ -248,6 +248,107 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return diffuse;
     }
 
+    Func h(GridSDF sdf, unsigned int dim) {
+        float h_kern[3] = {1.f, 2.f, 1.f};
+        Func h_conv("h_conv");
+
+        switch (dim) {
+            case 0:
+                h_conv(x, y, c) =
+                    sdf.buffer(max(x - 1, 0), y, c) * h_kern[0] +
+                    sdf.buffer(x, y, c) * h_kern[1] +
+                    sdf.buffer(min(x + 1, sdf.n[0] - 1), y, c) * h_kern[2];
+                break;
+            case 1:
+                h_conv(x, y, c) =
+                    sdf.buffer(x, max(y - 1, 0), c) * h_kern[0] +
+                    sdf.buffer(x, y, c) * h_kern[1] +
+                    sdf.buffer(x, min(y + 1, sdf.n[1] - 1), c) * h_kern[2];
+                break;
+            case 2:
+                h_conv(x, y, c) =
+                    sdf.buffer(x, y, max(c - 1, 0)) * h_kern[0] +
+                    sdf.buffer(x, y, c) * h_kern[1] +
+                    sdf.buffer(x, y, min(c + 1, sdf.n[2] - 1)) * h_kern[2];
+                break;
+            default:
+                throw std::out_of_range("invalid dim for h");
+        };
+
+        return h_conv;
+    }
+
+    Func h_p(GridSDF sdf, unsigned int dim) {
+        float h_p_kern[2] = {1.f, -1.f};
+        Func h_p_conv("h_p_conv");
+
+        switch (dim) {
+            case 0:
+                h_p_conv(x, y, c) =
+                    sdf.buffer(max(x - 1, 0), y, c) * h_p_kern[0] +
+                    sdf.buffer(min(x + 1, sdf.n[0] - 1), y, c) * h_p_kern[1];
+                break;
+            case 1:
+                h_p_conv(x, y, c) =
+                    sdf.buffer(x, max(y - 1, 0), c) * h_p_kern[0] +
+                    sdf.buffer(x, min(y + 1, sdf.n[1] - 1), c) * h_p_kern[1];
+                break;
+            case 2:
+                h_p_conv(x, y, c) =
+                    sdf.buffer(x, y, max(c - 1, 0)) * h_p_kern[0] +
+                    sdf.buffer(x, y, min(c + 1, sdf.n[2] - 1)) * h_p_kern[1];
+                break;
+            default:
+                throw std::out_of_range("invalid dim for h_p");
+        };
+
+        return h_p_conv;
+    }
+
+    Func sobel(GridSDF sdf) {
+        Func sobel("sobel");
+
+        Func h_x("h_x"), h_y("h_y"), h_z("h_z");
+        Func h_p_x("h_p_x"), h_p_y("h_p_y"), h_p_z("h_p_z");
+
+        h_x(x, y, c) = h(sdf, 0)(x, y, c);
+        h_y(x, y, c) = h(sdf, 1)(x, y, c);
+        h_z(x, y, c) = h(sdf, 2)(x, y, c);
+
+        h_p_x(x, y, c) = h_p(sdf, 0)(x, y, c);
+        h_p_y(x, y, c) = h_p(sdf, 1)(x, y, c);
+        h_p_z(x, y, c) = h_p(sdf, 2)(x, y, c);
+
+        sobel(x, y, c) = {
+            max(h_p_x(x, y, c) * h_y(x, y, c) * h_z(x, y, c), 1e-6f),
+            max(h_p_y(x, y, c) * h_z(x, y, c) * h_x(x, y, c), 1e-6f),
+            max(h_p_z(x, y, c) * h_x(x, y, c) * h_y(x, y, c), 1e-6f)
+        };
+
+        // TODO: come up with a better schedule at some point
+        h_x.compute_at(sobel, x);
+        h_y.compute_at(sobel, y);
+        h_z.compute_at(sobel, c);
+
+        h_p_x.compute_at(sobel, x);
+        h_p_y.compute_at(sobel, y);
+        h_p_z.compute_at(sobel, c);
+
+        Func sobel_norm("sobel_norm");
+        sobel_norm(x, y, c) = norm(sobel(x, y, c));
+
+        Func sobel_normalized("sobel_normalized");
+        sobel_normalized(x, y, c) = (TupleVec<3>(sobel(x, y, c))
+                                     / Expr(sobel_norm(x, y, c))).get();
+
+        sobel.compute_at(sobel_normalized, x);
+        sobel_norm.compute_at(sobel_normalized, x);
+
+        sobel_normalized.compute_root();
+
+        return sobel_normalized;
+    }
+
     Func sphere_trace(std::function<Expr(Tuple)> sdf,
                       float EPS = 1e-6) {
         Func original_ray_pos("original_ray_pos");
@@ -306,12 +407,15 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         original_ray_pos.compute_root();
         original_ray_vec.compute_root();
 
-
         Func end("end");
         end(x, y) = sphere_trace(example_sphere)(x, y);
+
         GridSDF grid_sdf = to_grid_sdf(example_sphere,
         {-4.0f, -4.0f, -4.0f},
         {4.0f, 4.0f, 4.0f}, 32, 32, 32);
+
+        //std::cout << Buffer<float>(sobel(grid_sdf).realize(32, 32, 32)[0])(0, 0, 0)
+        //          << std::endl;
 
         /*Func val("val");
         val(dx) = trilinear(grid_sdf, {-3.5f, -3.5f, -3.5f});
@@ -328,6 +432,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         out_(x, y, 0) = clamp(end(x, y)[0], 0.0f, 1.0f);
         out_(x, y, 1) = clamp(end(x, y)[1], 0.0f, 1.0f);
         out_(x, y, 2) = clamp(end(x, y)[2], 0.0f, 1.0f);
+        //out_(x, y, 0) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[0], 0.0f, 1.0f);
+        //out_(x, y, 1) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[1], 0.0f, 1.0f);
+        //out_(x, y, 2) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[2], 0.0f, 1.0f);
     }
 };
 
