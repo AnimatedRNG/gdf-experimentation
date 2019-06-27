@@ -185,32 +185,29 @@ class TupleVec final {
             throw std::out_of_range("template size does not match runtime tuple size!");
         }
     }
-    explicit TupleVec(Expr const& single_dim) {
-        std::vector<Expr> data(N);
-        for (unsigned int i = 0; i < N; i++) {
-            data[i] = single_dim;
-        }
-        _data = Tuple(data);
-    }
-    template <class T, typename = std::enable_if< std::is_convertible<T, Expr>::value, T >>
-    explicit TupleVec(T const& single_dim) : TupleVec(Expr(single_dim)) { }
     TupleVec(std::initializer_list<Expr> list) : _data(list) {
         if (list.size() != N) {
             throw std::out_of_range("template size does not match runtime tuple size!");
         }
     }
-    template <class T, typename = std::enable_if< std::is_convertible<T, Expr>::value, T >>
+    template <class T, typename std::enable_if< std::is_convertible<T, Expr>::value, T >::type>
     TupleVec(std::initializer_list<T> list) : _data(list) {
         if (list.size() != N) {
             throw std::out_of_range("template size does not match runtime tuple size!");
         }
     }
 
-    TupleVec(TupleVec const&) = default;
-    TupleVec(TupleVec&&) = default;
+    // Replace with default?
+    TupleVec(TupleVec const& other) : _data(other._data) {}
+    TupleVec(TupleVec&& other) : _data(other._data)  {}
 
-    TupleVec& operator=(TupleVec const&) = default;
-    TupleVec& operator=(TupleVec&&) = default;
+    // Replace with default?
+    TupleVec& operator=(TupleVec const& other) {
+        _data = other._data;
+    }
+    TupleVec& operator=(TupleVec&& other) {
+        _data = other._data;
+    };
 
     Tuple const& get() const {
         return _data;
@@ -343,6 +340,31 @@ TupleVec<N> operator-(Expr const& lhs, TupleVec<N> const& rhs) {
 }
 
 template <unsigned int N>
+TupleVec<N> operator*(TupleVec<N> const& lhs, Tuple const& rhs) {
+    if (rhs.size() == N) {
+        std::vector<Expr> output(N);
+
+        for (unsigned int i = 0; i < rhs.size(); i++) {
+            output[i] = lhs.get()[i] * rhs[i];
+        }
+
+        return TupleVec<N>(Tuple(output));
+    } else {
+        throw std::out_of_range("out of bounds on TupleVec+");
+    }
+}
+
+template <unsigned int N>
+TupleVec<N> operator*(Tuple const& lhs, TupleVec<N> const& rhs) {
+    return rhs * lhs;
+}
+
+template <unsigned int N>
+TupleVec<N> operator*(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
+    return lhs * rhs.get();
+}
+
+template <unsigned int N>
 TupleVec<N> operator*(TupleVec<N> const& lhs, Expr const& rhs) {
     std::vector<Expr> output(N);
 
@@ -356,6 +378,41 @@ TupleVec<N> operator*(TupleVec<N> const& lhs, Expr const& rhs) {
 template <unsigned int N>
 TupleVec<N> operator*(Expr const& lhs, TupleVec<N> const& rhs) {
     return rhs * lhs;
+}
+
+template <unsigned int N>
+TupleVec<N> operator/(TupleVec<N> const& lhs, Tuple const& rhs) {
+    if (rhs.size() == N) {
+        std::vector<Expr> output(N);
+
+        for (unsigned int i = 0; i < rhs.size(); i++) {
+            output[i] = lhs.get()[i] / rhs[i];
+        }
+
+        return TupleVec<N>(Tuple(output));
+    } else {
+        throw std::out_of_range("out of bounds on TupleVec-");
+    }
+}
+
+template <unsigned int N>
+TupleVec<N> operator/(Tuple const& lhs, TupleVec<N> const& rhs) {
+    if (rhs.size() == N) {
+        std::vector<Expr> output(N);
+
+        for (unsigned int i = 0; i < rhs.size(); i++) {
+            output[i] = lhs[i] / rhs.get()[i];
+        }
+
+        return TupleVec<N>(Tuple(output));
+    } else {
+        throw std::out_of_range("out of bounds on TupleVec-");
+    }
+}
+
+template <unsigned int N>
+TupleVec<N> operator/(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
+    return lhs / rhs.get();
 }
 
 template <unsigned int N>
