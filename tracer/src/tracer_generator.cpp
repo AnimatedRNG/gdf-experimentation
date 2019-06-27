@@ -9,7 +9,7 @@
 
 using namespace Halide;
 
-constexpr static int iterations = 300;
+constexpr static int iterations = 30;
 
 Var x("x"), y("y"), c("c"), t("t");
 Var dx("dx"), dy("dy"), dz("dz");
