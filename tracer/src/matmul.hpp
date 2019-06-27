@@ -263,7 +263,7 @@ TupleVec<N> operator+(Tuple const& lhs, TupleVec<N> const& rhs) {
 
 template <unsigned int N>
 TupleVec<N> operator+(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
-    return lhs + rhs;
+    return lhs + rhs.get();
 }
 
 template <unsigned int N>
