@@ -50,11 +50,9 @@ Expr trilinear(const GridSDF& sdf, TupleVec<3> position) {
         return clamp(cast<int32_t>(grid_space[i]), 0, sdf.n[i] - 1);
     });
 
-    TupleVec<3> up = {
-        clamp(cast<int32_t>(Halide::ceil(grid_space[0])), 0, sdf.n[0] - 1),
-        clamp(cast<int32_t>(Halide::ceil(grid_space[1])), 0, sdf.n[1] - 1),
-        clamp(cast<int32_t>(Halide::ceil(grid_space[2])), 0, sdf.n[2] - 1),
-    };
+    TupleVec<3> up = build<3>([grid_space, sdf](unsigned int i) {
+        return clamp(cast<int32_t>(Halide::ceil(grid_space[i])), 0, sdf.n[i] - 1);
+    });
 
     // why won't this work?
     /*Tuple up = {
