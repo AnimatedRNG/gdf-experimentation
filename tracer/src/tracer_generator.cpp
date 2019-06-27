@@ -15,12 +15,23 @@ Var x("x"), y("y"), c("c"), t("t");
 Var dx("dx"), dy("dy"), dz("dz");
 RDom tr;
 
-typedef struct {
+class GridSDF {
+  public:
+
+    GridSDF(Halide::Func _buffer, TupleVec<3> _p0, TupleVec<3> _p1, int n0, int n1,
+            int n2) :
+        buffer(_buffer),
+        p0(_p0),
+        p1(_p1),
+        n({n0, n1, n2}), nx(n0), ny(n1), nz(n2) { }
+
     Halide::Func buffer;
     TupleVec<3> p0;
     TupleVec<3> p1;
     TupleVec<3> n;
-} GridSDF;
+
+    int nx, ny, nz;
+};
 
 // For debugging analytical functions
 GridSDF to_grid_sdf(std::function<Expr(TupleVec<3>)> sdf,
@@ -35,9 +46,7 @@ GridSDF to_grid_sdf(std::function<Expr(TupleVec<3>)> sdf,
     }));
     Halide::Buffer<float> buffer = field_func.realize(nx, ny, nz);
 
-    return GridSDF {
-        Func(buffer), p0, p1, TupleVec<3>({nx, ny, nz})
-    };
+    return GridSDF(Func(buffer), p0, p1, nx, ny, nz);
 }
 
 // effectively converts a GridSDF into a regular SDF
@@ -221,31 +230,64 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Func light_source(TupleVec<3> light_color,
                       Func positions,
                       TupleVec<3> light_position,
-                      Func normals,
+                      GridSDF normals,
                       float kd = 0.7f,
                       float ks = 0.3f,
                       float ka = 100.0f) {
         Func light_vec("light_vec");
+        light_vec(x, y, t) = {0.0f, 0.0f, 0.0f};
         light_vec(x, y, tr) = (light_position - Tuple(positions(x, y, tr))).get();
 
         Func light_vec_norm("light_vec_norm");
+        light_vec_norm(x, y, t) = 0.0f;
         light_vec_norm(x, y, tr) = norm(TupleVec<3>(light_vec(x, y, tr)));
 
         Func light_vec_normalized("light_vec_normalized");
+        light_vec_normalized(x, y, t) = {0.0f, 0.0f, 0.0f};
         light_vec_normalized(x, y, tr) =
             (TupleVec<3>(light_vec(x, y, tr))
-             / Tuple(light_vec_norm(x, y, tr))).get();
+             / Expr(light_vec_norm(x, y, tr))).get();
 
         Func ray_position("ray_position");
+        ray_position(x, y, t) = {0.0f, 0.0f, 0.0f};
         ray_position(x, y, tr) = (TupleVec<3>(positions(x, y, tr)) +
                                   Tuple(light_vec_normalized(x, y, tr))).get();
 
         Func diffuse("diffuse");
+        diffuse(x, y, t) = {0.0f, 0.0f, 0.0f};
         diffuse(x, y, tr) = (kd * clamp(dot(Tuple(normals(x, y, tr)),
                                             Tuple(light_vec(x, y, tr))),
                                         0.0f, 1.0f) * light_color).get();
 
         return diffuse;
+    }
+
+    Func shade(Func positions, TupleVec<3> origin, GridSDF normals) {
+        TupleVec<3> top_light_color = {0.6f, 0.6f, 0.4f};
+        TupleVec<3> self_light_color = {0.4f, 0.0f, 0.4f};
+
+        TupleVec<3> top_light_pos = {10.0f, 30.0f, 0.0f};
+
+        TupleVec<3> self_light_pos = origin;
+
+        Func top_light("top_light"), self_light("self_light");
+        top_light(x, y, t) = {0.0f, 0.0f, 0.0f};
+        top_light(x, y, tr) = light_source(top_light_color,
+                                           positions,
+                                           top_light_pos,
+                                           normals)(x, y, tr);
+        self_light(x, y, t) = {0.0f, 0.0f, 0.0f};
+        self_light(x, y, tr) = light_source(self_light_color,
+                                            positions,
+                                            self_light_pos,
+                                            normals)(x, y, tr);
+
+        Func total_light("total_light");
+        total_light(x, y, t) = {0.0f, 0.0f, 0.0f};
+        total_light(x, y, tr) = (TupleVec<3>(top_light(x, y, tr))
+                                 + TupleVec<3>(self_light(x, y, tr))).get();
+
+        return total_light;
     }
 
     Func h(GridSDF sdf, unsigned int dim) {
@@ -305,7 +347,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return h_p_conv;
     }
 
-    Func sobel(GridSDF sdf) {
+    GridSDF sobel(GridSDF sdf) {
         Func sobel("sobel");
 
         Func h_x("h_x"), h_y("h_y"), h_z("h_z");
@@ -346,10 +388,10 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         sobel_normalized.compute_root();
 
-        return sobel_normalized;
+        return GridSDF(sobel_normalized, sdf.p0, sdf.p1, sdf.nx, sdf.ny, sdf.nz);
     }
 
-    Func sphere_trace(std::function<Expr(Tuple)> sdf,
+    Func sphere_trace(const GridSDF& sdf,
                       float EPS = 1e-6) {
         Func original_ray_pos("original_ray_pos");
         Func ray_vec("ray_vec");
@@ -362,17 +404,12 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Expr d("d");
         Func depth("depth");
 
-        // debug
-        GridSDF grid_sdf = to_grid_sdf(example_sphere,
-                                       TupleVec<3>({-4.0f, -4.0f, -4.0f}),
-                                       TupleVec<3>({4.0f, 4.0f, 4.0f}),
-                                       32, 32, 32);
+        GridSDF sb = sobel(sdf);
 
         // Remember how update definitions work
         pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
         pos(x, y, 0) = original_ray_pos(x, y);
-        //d = sdf(pos(x, y, tr));
-        d = trilinear(grid_sdf, TupleVec<3>(Tuple(pos(x, y, tr))));
+        d = trilinear(sdf, TupleVec<3>(Tuple(pos(x, y, tr))));
         pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
                              d * TupleVec<3>(ray_vec(x, y))).get();
         //pos.trace_stores();
@@ -380,12 +417,18 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         depth(x, y, t) = 0.0f;
         depth(x, y, tr + 1) = d;
 
+        Func shaded("shaded");
+        shaded(x, y, t) = {0.0f, 0.0f, 0.0f};
+        shaded(x, y, tr) = shade(pos, {origin(0), origin(1), origin(2)}, sb)(x,
+                           y, tr);
+
         Func endpoint("endpoint");
-        endpoint(x, y) = pos(x, y, iterations);
+        //endpoint(x, y) = pos(x, y, iterations);
         /*endpoint(x, y) = {depth(x, y, iterations),
                           depth(x, y, iterations),
                           depth(x, y, iterations)
                           };*/
+        endpoint(x, y) = shaded(x, y, iterations);
         endpoint.compute_root();
         pos.unroll(t);
         pos.compute_at(endpoint, x);
@@ -407,12 +450,12 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         original_ray_pos.compute_root();
         original_ray_vec.compute_root();
 
-        Func end("end");
-        end(x, y) = sphere_trace(example_sphere)(x, y);
-
         GridSDF grid_sdf = to_grid_sdf(example_sphere,
         {-4.0f, -4.0f, -4.0f},
         {4.0f, 4.0f, 4.0f}, 32, 32, 32);
+
+        Func end("end");
+        end(x, y) = sphere_trace(grid_sdf)(x, y);
 
         //std::cout << Buffer<float>(sobel(grid_sdf).realize(32, 32, 32)[0])(0, 0, 0)
         //          << std::endl;
