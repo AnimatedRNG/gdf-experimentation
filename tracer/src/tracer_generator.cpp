@@ -17,51 +17,44 @@ RDom tr;
 
 typedef struct {
     Halide::Buffer<float> buffer;
-    float x0, y0, z0;
-    float x1, y1, z1;
-    int nx, ny, nz;
+    TupleVec<3> p0;
+    TupleVec<3> p1;
+    TupleVec<3> n;
 } GridSDF;
 
 // For debugging analytical functions
-GridSDF to_grid_sdf(std::function<Expr(TupleVec<3>)> sdf, float x0, float y0,
-                    float z0, float x1, float y1,
-                    float z1, int nx, int ny, int nz) {
+GridSDF to_grid_sdf(std::function<Expr(TupleVec<3>)> sdf,
+                    TupleVec<3> p0,
+                    TupleVec<3> p1,
+                    int nx, int ny, int nz) {
     Func field_func("field_func");
-    field_func(dx, dy, dz) =
-        sdf(
-            TupleVec<3>(
-                Tuple(
-                    (dx / (float) nx) * (x1 - x0) + x0,
-                    (dy / (float) ny) * (y1 - y0) + y0,
-                    (dz / (float) nz) * (z1 - z0) + z0
-                )
-            )
-        );
+    field_func(dx, dy, dz) = sdf(TupleVec<3>({
+        (dx / cast<float>(nx)) * (p1[0] - p0[0]) + p0[0],
+        (dy / cast<float>(ny)) * (p1[1] - p0[1]) + p0[1],
+        (dz / cast<float>(nz)) * (p1[2] - p0[2]) + p0[2]
+    }));
     Halide::Buffer<float> buffer = field_func.realize(nx, ny, nz);
+
     return GridSDF {
-        buffer, x0, y0, z0, x1, y1, z1, nx, ny, nz
+        buffer, p0, p1, TupleVec<3>({nx, ny, nz})
     };
 }
 
 // effectively converts a GridSDF into a regular SDF
-Expr trilinear(const GridSDF& sdf, Tuple position) {
-    Tuple grid_space = {
-        ((position[0] - sdf.x0) / (sdf.x1 - sdf.x0))* ((float) sdf.nx),
-        ((position[1] - sdf.y0) / (sdf.y1 - sdf.y0))* ((float) sdf.ny),
-        ((position[2] - sdf.z0) / (sdf.z1 - sdf.z0))* ((float) sdf.nz)
-    };
+Expr trilinear(const GridSDF& sdf, TupleVec<3> position) {
+    TupleVec<3> grid_space = ((position - sdf.p0) / (sdf.p1 - sdf.p0)) * (cast<float>(sdf.n));
 
     // floor and ceil slow?
-    Tuple lp = {
-        clamp(cast<int32_t>(grid_space[0]), 0, sdf.nx - 1),
-        clamp(cast<int32_t>(grid_space[1]), 0, sdf.ny - 1),
-        clamp(cast<int32_t>(grid_space[2]), 0, sdf.nz - 1),
+    TupleVec<3> lp = {
+        clamp(cast<int32_t>(grid_space[0]), 0, sdf.n[0] - 1),
+        clamp(cast<int32_t>(grid_space[1]), 0, sdf.n[1] - 1),
+        clamp(cast<int32_t>(grid_space[2]), 0, sdf.n[2] - 1),
     };
 
-    Tuple up = {
-        clamp(cast<int32_t>(Halide::ceil(grid_space[0])), 0, sdf.nx - 1),
-        clamp(cast<int32_t>(Halide::ceil(grid_space[1])), 0, sdf.ny - 1),
-        clamp(cast<int32_t>(Halide::ceil(grid_space[2])), 0, sdf.nz - 1),
+    TupleVec<3> up = {
+        clamp(cast<int32_t>(Halide::ceil(grid_space[0])), 0, sdf.n[0] - 1),
+        clamp(cast<int32_t>(Halide::ceil(grid_space[1])), 0, sdf.n[1] - 1),
+        clamp(cast<int32_t>(Halide::ceil(grid_space[2])), 0, sdf.n[2] - 1),
     };
 
     // why won't this work?
@@ -71,11 +64,12 @@ Expr trilinear(const GridSDF& sdf, Tuple position) {
         clamp(lp[2] + 1, 0, sdf.nz - 1)
         };*/
 
-    Tuple alpha = {
+    /*TupleVec<3> alpha = {
         grid_space[0] - lp[0],
         grid_space[1] - lp[1],
         grid_space[2] - lp[2],
-    };
+        };*/
+    TupleVec<3> alpha = grid_space - lp;
 
     Expr c000 = sdf.buffer(lp[0], lp[1], lp[2]);
     Expr c001 = sdf.buffer(lp[0], lp[1], up[2]);
@@ -280,13 +274,15 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         // debug
         GridSDF grid_sdf = to_grid_sdf(example_sphere,
-                                       -4.0, -4.0, -4.0, 4.0, 4.0, 4.0, 32, 32, 32);
+                                       TupleVec<3>({-4.0f, -4.0f, -4.0f}),
+                                       TupleVec<3>({4.0f, 4.0f, 4.0f}),
+                                       32, 32, 32);
 
         // Remember how update definitions work
         pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
         pos(x, y, 0) = original_ray_pos(x, y);
         //d = sdf(pos(x, y, tr));
-        d = trilinear(grid_sdf, pos(x, y, tr));
+        d = trilinear(grid_sdf, TupleVec<3>(Tuple(pos(x, y, tr))));
         pos(x, y, tr + 1) = Tuple(
                                 pos(x, y, tr)[0] + d * ray_vec(x, y)[0],
                                 pos(x, y, tr)[1] + d * ray_vec(x, y)[1],
@@ -327,7 +323,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func end("end");
         end(x, y) = sphere_trace(example_sphere)(x, y);
         GridSDF grid_sdf = to_grid_sdf(example_sphere,
-                                       -4.0, -4.0, -4.0, 4.0, 4.0, 4.0, 32, 32, 32);
+                                       {-4.0f, -4.0f, -4.0f},
+                                       {4.0f, 4.0f, 4.0f}, 32, 32, 32);
 
         /*Func val("val");
         val(dx) = trilinear(grid_sdf, {-3.5f, -3.5f, -3.5f});
