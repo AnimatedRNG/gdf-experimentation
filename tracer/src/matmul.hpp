@@ -233,6 +233,17 @@ class TupleVec final {
     }
 };
 
+template <typename T, unsigned int N>
+TupleVec<N> cast(TupleVec<N> const& v) {
+    std::vector<Expr> output(N);
+
+    for (unsigned int i = 0; i < N; i++) {
+        output[i] = cast<T>(v[i]);
+    }
+
+    return TupleVec<N>(Tuple(output));
+}
+
 template <unsigned int N>
 TupleVec<N> operator+(TupleVec<N> const& lhs, Tuple const& rhs) {
     if (rhs.size() == N) {
@@ -242,7 +253,7 @@ TupleVec<N> operator+(TupleVec<N> const& lhs, Tuple const& rhs) {
             output[i] = lhs.get()[i] + rhs[i];
         }
 
-        return Tuple(output);
+        return TupleVec<N>(Tuple(output));
     } else {
         throw std::out_of_range("out of bounds on TupleVec+");
     }
@@ -266,7 +277,7 @@ TupleVec<N> operator+(TupleVec<N> const& lhs, Expr const& rhs) {
         output[i] = lhs.get()[i] + rhs;
     }
 
-    return Tuple(output);
+    return TupleVec<N>(Tuple(output));
 }
 
 template <unsigned int N>
@@ -283,7 +294,7 @@ TupleVec<N> operator-(TupleVec<N> const& lhs, Tuple const& rhs) {
             output[i] = lhs.get()[i] - rhs[i];
         }
 
-        return Tuple(output);
+        return TupleVec<N>(Tuple(output));
     } else {
         throw std::out_of_range("out of bounds on TupleVec-");
     }
@@ -298,7 +309,7 @@ TupleVec<N> operator-(Tuple const& lhs, TupleVec<N> const& rhs) {
             output[i] = lhs[i] - rhs.get()[i];
         }
 
-        return Tuple(output);
+        return TupleVec<N>(Tuple(output));
     } else {
         throw std::out_of_range("out of bounds on TupleVec-");
     }
@@ -317,7 +328,7 @@ TupleVec<N> operator-(TupleVec<N> const& lhs, Expr const& rhs) {
         output[i] = lhs.get()[i] - rhs;
     }
 
-    return Tuple(output);
+    return TupleVec<N>(Tuple(output));
 }
 
 template <unsigned int N>
@@ -328,7 +339,7 @@ TupleVec<N> operator-(Expr const& lhs, TupleVec<N> const& rhs) {
         output[i] = rhs.get()[i] - lhs;
     }
 
-    return Tuple(output);;
+    return TupleVec<N>(Tuple(output));
 }
 
 template <unsigned int N>
@@ -339,7 +350,7 @@ TupleVec<N> operator*(TupleVec<N> const& lhs, Expr const& rhs) {
         output[i] = lhs.get()[i] * rhs;
     }
 
-    return Tuple(output);
+    return TupleVec<N>(Tuple(output));
 }
 
 template <unsigned int N>
@@ -355,7 +366,7 @@ TupleVec<N> operator/(TupleVec<N> const& lhs, Expr const& rhs) {
         output[i] = lhs.get()[i] / rhs;
     }
 
-    return Tuple(output);
+    return TupleVec<N>(Tuple(output));
 }
 
 template <unsigned int N>
@@ -366,7 +377,7 @@ TupleVec<N> operator/(Expr const& lhs, TupleVec<N> const& rhs) {
         output[i] = rhs / lhs.get()[i];
     }
 
-    return Tuple(output);
+    return TupleVec<N>(Tuple(output));
 }
 
 Expr dot(Tuple const& lhs, Tuple const& rhs) {
