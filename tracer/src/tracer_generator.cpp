@@ -9,7 +9,7 @@
 
 using namespace Halide;
 
-constexpr static int iterations = 30;
+constexpr static int iterations = 300;
 
 Var x("x"), y("y"), c("c"), t("t");
 Var dx("dx"), dy("dy"), dz("dz");
@@ -23,15 +23,20 @@ typedef struct {
 } GridSDF;
 
 // For debugging analytical functions
-GridSDF to_grid_sdf(std::function<Expr(Tuple)> sdf, float x0, float y0,
+GridSDF to_grid_sdf(std::function<Expr(TupleVec<3>)> sdf, float x0, float y0,
                     float z0, float x1, float y1,
                     float z1, int nx, int ny, int nz) {
     Func field_func("field_func");
-    field_func(dx, dy, dz) = sdf({
-        (dx / (float) nx) * (x1 - x0) + x0,
-        (dy / (float) ny) * (y1 - y0) + y0,
-        (dz / (float) nz) * (z1 - z0) + z0
-    });
+    field_func(dx, dy, dz) =
+        sdf(
+            TupleVec<3>(
+                Tuple(
+                    (dx / (float) nx) * (x1 - x0) + x0,
+                    (dy / (float) ny) * (y1 - y0) + y0,
+                    (dz / (float) nz) * (z1 - z0) + z0
+                )
+            )
+        );
     Halide::Buffer<float> buffer = field_func.realize(nx, ny, nz);
     return GridSDF {
         buffer, x0, y0, z0, x1, y1, z1, nx, ny, nz
@@ -48,9 +53,9 @@ Expr trilinear(const GridSDF& sdf, Tuple position) {
 
     // floor and ceil slow?
     Tuple lp = {
-        clamp(cast<int32_t>(Halide::floor(grid_space[0])), 0, sdf.nx - 1),
-        clamp(cast<int32_t>(Halide::floor(grid_space[1])), 0, sdf.ny - 1),
-        clamp(cast<int32_t>(Halide::floor(grid_space[2])), 0, sdf.nz - 1),
+        clamp(cast<int32_t>(grid_space[0]), 0, sdf.nx - 1),
+        clamp(cast<int32_t>(grid_space[1]), 0, sdf.ny - 1),
+        clamp(cast<int32_t>(grid_space[2]), 0, sdf.nz - 1),
     };
 
     Tuple up = {
@@ -58,6 +63,13 @@ Expr trilinear(const GridSDF& sdf, Tuple position) {
         clamp(cast<int32_t>(Halide::ceil(grid_space[1])), 0, sdf.ny - 1),
         clamp(cast<int32_t>(Halide::ceil(grid_space[2])), 0, sdf.nz - 1),
     };
+
+    // why won't this work?
+    /*Tuple up = {
+        clamp(lp[0] + 1, 0, sdf.nx - 1),
+        clamp(lp[1] + 1, 0, sdf.ny - 1),
+        clamp(lp[2] + 1, 0, sdf.nz - 1)
+        };*/
 
     Tuple alpha = {
         grid_space[0] - lp[0],
@@ -104,11 +116,15 @@ void apply_auto_schedule(Func F) {
     std::cout << std::endl;
 }
 
-Expr example_sphere(Tuple position) {
+/*Expr example_sphere(Tuple position) {
     return Halide::sqrt(
                position[0] * position[0] +
                position[1] * position[1] +
                position[2] * position[2]) - 3.0f;
+               }*/
+
+Expr example_sphere(TupleVec<3> position) {
+    return norm(position) - 3.0f;
 }
 
 class TracerGenerator : public Halide::Generator<TracerGenerator> {
@@ -169,9 +185,10 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func ray_vec("ray_vec");
         RDom norm_k(0, 3);
         // could use fast inverse sqrt, but not worth accuracy loss
-        Expr ray_vec_norm = Halide::sqrt(sum(
-                                             projected(x, y, norm_k) *
-                                             projected(x, y, norm_k)));
+        Expr ray_vec_norm = Halide::sqrt(
+                                sum(
+                                    projected(x, y, norm_k) *
+                                    projected(x, y, norm_k)));
         ray_vec(x, y) = Tuple(projected(x, y, 0) / ray_vec_norm,
                               projected(x, y, 1) / ray_vec_norm,
                               projected(x, y, 2) / ray_vec_norm);
@@ -208,6 +225,44 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
     Expr normal_pdf_rectified(Expr x, float sigma = 1e-2f, float mean = 0.0f) {
         return normal_pdf(relu(x), sigma, mean);
+    }
+
+    Func light_source(Tuple light_color,
+                      Func positions,
+                      Tuple light_position,
+                      Func normals,
+                      float kd = 0.7f,
+                      float ks = 0.3f,
+                      float ka = 100.0f) {
+        Func light_vec("light_vec");
+        light_vec(x, y, tr) = {
+            light_position[0] - positions(x, y, tr)[0],
+            light_position[1] - positions(x, y, tr)[1],
+            light_position[2] - positions(x, y, tr)[2]
+        };
+
+        Func light_vec_norm("light_vec_norm");
+        light_vec_norm(x, y, tr) =
+            Halide::sqrt(light_vec(x, y, tr)[0] +
+                         light_vec(x, y, tr)[1] +
+                         light_vec(x, y, tr)[2]);
+
+        Func light_vec_normalized("light_vec_normalized");
+        light_vec_normalized(x, y, tr) = {
+            light_vec(x, y, tr)[0] / light_vec_norm(x, y, tr),
+            light_vec(x, y, tr)[1] / light_vec_norm(x, y, tr),
+            light_vec(x, y, tr)[2] / light_vec_norm(x, y, tr),
+        };
+
+        Func ray_position("ray_position");
+        ray_position(x, y, tr) = {
+            positions(x, y, tr)[0] + light_vec(x, y, tr)[0],
+            positions(x, y, tr)[1] + light_vec(x, y, tr)[1],
+            positions(x, y, tr)[2] + light_vec(x, y, tr)[2],
+        };
+
+        Func diffuse("diffuse");
+
     }
 
     Func sphere_trace(std::function<Expr(Tuple)> sdf,
@@ -267,6 +322,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                            projection(projection_, view_);
         original_ray_pos.compute_root();
         original_ray_vec.compute_root();
+
 
         Func end("end");
         end(x, y) = sphere_trace(example_sphere)(x, y);
