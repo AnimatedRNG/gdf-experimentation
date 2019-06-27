@@ -42,14 +42,13 @@ GridSDF to_grid_sdf(std::function<Expr(TupleVec<3>)> sdf,
 
 // effectively converts a GridSDF into a regular SDF
 Expr trilinear(const GridSDF& sdf, TupleVec<3> position) {
-    TupleVec<3> grid_space = ((position - sdf.p0) / (sdf.p1 - sdf.p0)) * (cast<float>(sdf.n));
+    TupleVec<3> grid_space = ((position - sdf.p0) / (sdf.p1 - sdf.p0)) *
+                             (cast<float>(sdf.n));
 
     // floor and ceil slow?
-    TupleVec<3> lp = {
-        clamp(cast<int32_t>(grid_space[0]), 0, sdf.n[0] - 1),
-        clamp(cast<int32_t>(grid_space[1]), 0, sdf.n[1] - 1),
-        clamp(cast<int32_t>(grid_space[2]), 0, sdf.n[2] - 1),
-    };
+    TupleVec<3> lp = build<3>([grid_space, sdf](unsigned int i) {
+        return clamp(cast<int32_t>(grid_space[i]), 0, sdf.n[i] - 1);
+    });
 
     TupleVec<3> up = {
         clamp(cast<int32_t>(Halide::ceil(grid_space[0])), 0, sdf.n[0] - 1),
@@ -323,8 +322,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func end("end");
         end(x, y) = sphere_trace(example_sphere)(x, y);
         GridSDF grid_sdf = to_grid_sdf(example_sphere,
-                                       {-4.0f, -4.0f, -4.0f},
-                                       {4.0f, 4.0f, 4.0f}, 32, 32, 32);
+        {-4.0f, -4.0f, -4.0f},
+        {4.0f, 4.0f, 4.0f}, 32, 32, 32);
 
         /*Func val("val");
         val(dx) = trilinear(grid_sdf, {-3.5f, -3.5f, -3.5f});
