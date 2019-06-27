@@ -218,42 +218,34 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return normal_pdf(relu(x), sigma, mean);
     }
 
-    Func light_source(Tuple light_color,
+    Func light_source(TupleVec<3> light_color,
                       Func positions,
-                      Tuple light_position,
+                      TupleVec<3> light_position,
                       Func normals,
                       float kd = 0.7f,
                       float ks = 0.3f,
                       float ka = 100.0f) {
         Func light_vec("light_vec");
-        light_vec(x, y, tr) = {
-            light_position[0] - positions(x, y, tr)[0],
-            light_position[1] - positions(x, y, tr)[1],
-            light_position[2] - positions(x, y, tr)[2]
-        };
+        light_vec(x, y, tr) = (light_position - Tuple(positions(x, y, tr))).get();
 
         Func light_vec_norm("light_vec_norm");
-        light_vec_norm(x, y, tr) =
-            Halide::sqrt(light_vec(x, y, tr)[0] +
-                         light_vec(x, y, tr)[1] +
-                         light_vec(x, y, tr)[2]);
+        light_vec_norm(x, y, tr) = norm(TupleVec<3>(light_vec(x, y, tr)));
 
         Func light_vec_normalized("light_vec_normalized");
-        light_vec_normalized(x, y, tr) = {
-            light_vec(x, y, tr)[0] / light_vec_norm(x, y, tr),
-            light_vec(x, y, tr)[1] / light_vec_norm(x, y, tr),
-            light_vec(x, y, tr)[2] / light_vec_norm(x, y, tr),
-        };
+        light_vec_normalized(x, y, tr) =
+            (TupleVec<3>(light_vec(x, y, tr))
+             / Tuple(light_vec_norm(x, y, tr))).get();
 
         Func ray_position("ray_position");
-        ray_position(x, y, tr) = {
-            positions(x, y, tr)[0] + light_vec(x, y, tr)[0],
-            positions(x, y, tr)[1] + light_vec(x, y, tr)[1],
-            positions(x, y, tr)[2] + light_vec(x, y, tr)[2],
-        };
+        ray_position(x, y, tr) = (TupleVec<3>(positions(x, y, tr)) +
+                                  Tuple(light_vec_normalized(x, y, tr))).get();
 
         Func diffuse("diffuse");
+        diffuse(x, y, tr) = (kd * clamp(dot(Tuple(normals(x, y, tr)),
+                                            Tuple(light_vec(x, y, tr))),
+                                        0.0f, 1.0f) * light_color).get();
 
+        return diffuse;
     }
 
     Func sphere_trace(std::function<Expr(Tuple)> sdf,
@@ -280,10 +272,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         pos(x, y, 0) = original_ray_pos(x, y);
         //d = sdf(pos(x, y, tr));
         d = trilinear(grid_sdf, TupleVec<3>(Tuple(pos(x, y, tr))));
-        pos(x, y, tr + 1) = Tuple(
-                                pos(x, y, tr)[0] + d * ray_vec(x, y)[0],
-                                pos(x, y, tr)[1] + d * ray_vec(x, y)[1],
-                                pos(x, y, tr)[2] + d * ray_vec(x, y)[2]);
+        pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
+                             d * TupleVec<3>(ray_vec(x, y))).get();
         //pos.trace_stores();
         Var xi, xo, yi, yo;
         depth(x, y, t) = 0.0f;
