@@ -50,7 +50,8 @@ GridSDF to_grid_sdf(std::function<Expr(TupleVec<3>)> sdf,
 }
 
 // effectively converts a GridSDF into a regular SDF
-Expr trilinear(const GridSDF& sdf, TupleVec<3> position) {
+template <unsigned int N>
+TupleVec<N> trilinear(const GridSDF& sdf, TupleVec<3> position) {
     TupleVec<3> grid_space = ((position - sdf.p0) / (sdf.p1 - sdf.p0)) *
                              (cast<float>(sdf.n));
 
@@ -77,29 +78,59 @@ Expr trilinear(const GridSDF& sdf, TupleVec<3> position) {
         };*/
     TupleVec<3> alpha = grid_space - lp;
 
-    Expr c000 = sdf.buffer(lp[0], lp[1], lp[2]);
-    Expr c001 = sdf.buffer(lp[0], lp[1], up[2]);
-    Expr c010 = sdf.buffer(lp[0], up[1], lp[2]);
-    Expr c011 = sdf.buffer(lp[0], up[1], up[2]);
-    Expr c100 = sdf.buffer(up[0], lp[1], lp[2]);
-    Expr c101 = sdf.buffer(up[0], lp[1], up[2]);
-    Expr c110 = sdf.buffer(up[0], up[1], lp[2]);
-    Expr c111 = sdf.buffer(up[0], up[1], up[2]);
+    if (N == 1) {
+        Expr c000 = sdf.buffer(lp[0], lp[1], lp[2]);
+        Expr c001 = sdf.buffer(lp[0], lp[1], up[2]);
+        Expr c010 = sdf.buffer(lp[0], up[1], lp[2]);
+        Expr c011 = sdf.buffer(lp[0], up[1], up[2]);
+        Expr c100 = sdf.buffer(up[0], lp[1], lp[2]);
+        Expr c101 = sdf.buffer(up[0], lp[1], up[2]);
+        Expr c110 = sdf.buffer(up[0], up[1], lp[2]);
+        Expr c111 = sdf.buffer(up[0], up[1], up[2]);
 
-    // interpolate on x
-    Expr c00 = Halide::lerp(c000, c100, alpha[0]);
-    Expr c01 = Halide::lerp(c001, c101, alpha[0]);
-    Expr c10 = Halide::lerp(c010, c110, alpha[0]);
-    Expr c11 = Halide::lerp(c011, c111, alpha[0]);
+        // interpolate on x
+        Expr c00 = Halide::lerp(c000, c100, alpha[0]);
+        Expr c01 = Halide::lerp(c001, c101, alpha[0]);
+        Expr c10 = Halide::lerp(c010, c110, alpha[0]);
+        Expr c11 = Halide::lerp(c011, c111, alpha[0]);
 
-    // interpolate on y
-    Expr c0 = Halide::lerp(c00, c10, alpha[1]);
-    Expr c1 = Halide::lerp(c01, c11, alpha[1]);
+        // interpolate on y
+        Expr c0 = Halide::lerp(c00, c10, alpha[1]);
+        Expr c1 = Halide::lerp(c01, c11, alpha[1]);
 
-    // interpolate on z
-    Expr c = Halide::lerp(c0, c1, alpha[2]);
+        // interpolate on z
+        Expr c = Halide::lerp(c0, c1, alpha[2]);
 
-    return c;
+        return TupleVec<N>({c});
+    } else {
+        Tuple c000 = sdf.buffer(lp[0], lp[1], lp[2]);
+        Tuple c001 = sdf.buffer(lp[0], lp[1], up[2]);
+        Tuple c010 = sdf.buffer(lp[0], up[1], lp[2]);
+        Tuple c011 = sdf.buffer(lp[0], up[1], up[2]);
+        Tuple c100 = sdf.buffer(up[0], lp[1], lp[2]);
+        Tuple c101 = sdf.buffer(up[0], lp[1], up[2]);
+        Tuple c110 = sdf.buffer(up[0], up[1], lp[2]);
+        Tuple c111 = sdf.buffer(up[0], up[1], up[2]);
+
+        TupleVec<N> c00 = TupleVec<N>(c000) * (1.0f - alpha[0]) +
+                          TupleVec<N>(c100) * alpha[0];
+        TupleVec<N> c01 = TupleVec<N>(c001) * (1.0f - alpha[0]) +
+                          TupleVec<N>(c101) * alpha[0];
+        TupleVec<N> c10 = TupleVec<N>(c010) * (1.0f - alpha[0]) +
+                          TupleVec<N>(c110) * alpha[0];
+        TupleVec<N> c11 = TupleVec<N>(c011) * (1.0f - alpha[0]) +
+                          TupleVec<N>(c111) * alpha[0];
+
+        TupleVec<N> c0 = TupleVec<N>(c00) * (1.0f - alpha[1]) +
+                         TupleVec<N>(c10) * alpha[1];
+        TupleVec<N> c1 = TupleVec<N>(c01) * (1.0f - alpha[1]) +
+                         TupleVec<N>(c11) * alpha[1];
+
+        TupleVec<N> c = TupleVec<N>(c0) * (1.0f - alpha[2]) +
+                        TupleVec<N>(c1) * alpha[2];
+
+        return c;
+    }
 }
 
 void apply_auto_schedule(Func F) {
@@ -253,9 +284,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         ray_position(x, y, tr) = (TupleVec<3>(positions(x, y, tr)) +
                                   Tuple(light_vec_normalized(x, y, tr))).get();
 
+        TupleVec<3> normal_sample =
+            trilinear<3>(normals, TupleVec<3>(Tuple(positions(x, y, tr))));
         Func diffuse("diffuse");
         diffuse(x, y, t) = {0.0f, 0.0f, 0.0f};
-        diffuse(x, y, tr) = (kd * clamp(dot(Tuple(normals(x, y, tr)),
+        diffuse(x, y, tr) = (kd * clamp(dot(normal_sample,
                                             Tuple(light_vec(x, y, tr))),
                                         0.0f, 1.0f) * light_color).get();
 
@@ -286,6 +319,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         total_light(x, y, t) = {0.0f, 0.0f, 0.0f};
         total_light(x, y, tr) = (TupleVec<3>(top_light(x, y, tr))
                                  + TupleVec<3>(self_light(x, y, tr))).get();
+        //total_light.trace_stores();
 
         return total_light;
     }
@@ -348,7 +382,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     GridSDF sobel(GridSDF sdf) {
-        Func sobel("sobel");
+        Func sb("sobel");
 
         Func h_x("h_x"), h_y("h_y"), h_z("h_z");
         Func h_p_x("h_p_x"), h_p_y("h_p_y"), h_p_z("h_p_z");
@@ -361,29 +395,29 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         h_p_y(x, y, c) = h_p(sdf, 1)(x, y, c);
         h_p_z(x, y, c) = h_p(sdf, 2)(x, y, c);
 
-        sobel(x, y, c) = {
+        sb(x, y, c) = {
             max(h_p_x(x, y, c) * h_y(x, y, c) * h_z(x, y, c), 1e-6f),
             max(h_p_y(x, y, c) * h_z(x, y, c) * h_x(x, y, c), 1e-6f),
             max(h_p_z(x, y, c) * h_x(x, y, c) * h_y(x, y, c), 1e-6f)
         };
 
         // TODO: come up with a better schedule at some point
-        h_x.compute_at(sobel, x);
-        h_y.compute_at(sobel, y);
-        h_z.compute_at(sobel, c);
+        h_x.compute_at(sb, x);
+        h_y.compute_at(sb, y);
+        h_z.compute_at(sb, c);
 
-        h_p_x.compute_at(sobel, x);
-        h_p_y.compute_at(sobel, y);
-        h_p_z.compute_at(sobel, c);
+        h_p_x.compute_at(sb, x);
+        h_p_y.compute_at(sb, y);
+        h_p_z.compute_at(sb, c);
 
         Func sobel_norm("sobel_norm");
-        sobel_norm(x, y, c) = norm(sobel(x, y, c));
+        sobel_norm(x, y, c) = norm(sb(x, y, c));
 
         Func sobel_normalized("sobel_normalized");
-        sobel_normalized(x, y, c) = (TupleVec<3>(sobel(x, y, c))
+        sobel_normalized(x, y, c) = (TupleVec<3>(sb(x, y, c))
                                      / Expr(sobel_norm(x, y, c))).get();
 
-        sobel.compute_at(sobel_normalized, x);
+        sb.compute_at(sobel_normalized, x);
         sobel_norm.compute_at(sobel_normalized, x);
 
         sobel_normalized.compute_root();
@@ -409,30 +443,32 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         // Remember how update definitions work
         pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
         pos(x, y, 0) = original_ray_pos(x, y);
-        d = trilinear(sdf, TupleVec<3>(Tuple(pos(x, y, tr))));
+        d = trilinear<1>(sdf, TupleVec<3>(Tuple(pos(x, y, tr))))[0];
         pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
                              d * TupleVec<3>(ray_vec(x, y))).get();
-        //pos.trace_stores();
         Var xi, xo, yi, yo;
         depth(x, y, t) = 0.0f;
         depth(x, y, tr + 1) = d;
 
         Func shaded("shaded");
         shaded(x, y, t) = {0.0f, 0.0f, 0.0f};
-        shaded(x, y, tr) = shade(pos, {origin(0), origin(1), origin(2)}, sb)(x,
-                           y, tr);
+        shaded(x, y, tr) = (TupleVec<3>(
+                                shade(pos, {origin(0), origin(1), origin(2)}, sb)(x, y, tr)) *
+                            1.0f).get();
 
         Func endpoint("endpoint");
-        //endpoint(x, y) = pos(x, y, iterations);
+        //endpoint(x, y) = pos(x, y, iterations - 1);
         /*endpoint(x, y) = {depth(x, y, iterations),
                           depth(x, y, iterations),
                           depth(x, y, iterations)
                           };*/
-        endpoint(x, y) = shaded(x, y, iterations);
+        endpoint(x, y) = shaded(x, y, iterations - 1);
         endpoint.compute_root();
         pos.unroll(t);
-        pos.compute_at(endpoint, x);
-        pos.store_at(endpoint, x);
+        //pos.compute_at(endpoint, x);
+        //pos.store_at(endpoint, x);
+        apply_auto_schedule(shaded);
+        //apply_auto_schedule(pos);
 
         return endpoint;
     }
@@ -461,7 +497,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //          << std::endl;
 
         /*Func val("val");
-        val(dx) = trilinear(grid_sdf, {-3.5f, -3.5f, -3.5f});
+        val(dx) = trilinear<1>(grid_sdf, {-3.5f, -3.5f, -3.5f})[0];
         std::cout << "at (-3.5, -3.5, -3.5) " << Buffer<float>(val.realize(1))(0) <<
         std::endl;*/
 
