@@ -32,28 +32,8 @@ int main() {
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);
     Buffer<float> output(width, height, 3);
-    Buffer<float> debug(4, 4);
 
-    tracer_render(projection, view, width, height, output, debug);
-
-    for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 4; j++) {
-            std::cout << debug(i, j) << " ";
-        }
-        std::cout << std::endl;
-    }
-
-    /*for (int i = 0; i < 10; i++) {
-        for (int j = 0; j < 10; j++) {
-            std::cout
-                    << "("
-                    << output(i, j, 0) << ", "
-                    << output(i, j, 1) << ", "
-                    << output(i, j, 2) << ", ";
-                //<< output(i, j, 3) << ") ";
-        }
-        std::cout << std::endl;
-        }*/
+    tracer_render(projection, view, width, height, output);
 
     convert_and_save_image(output, "test.png");
 

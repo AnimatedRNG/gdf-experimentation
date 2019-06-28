@@ -128,7 +128,7 @@ namespace {
                 normals_.estimate(x, 0, 64)
                 .estimate(y, 0, 64)
                 .estimate(z, 0, 64);*/
-                std::cout << "auto schedule" << std::endl;
+                std::cout << "auto schedule sobel" << std::endl;
             } else {
                 // TODO: come up with a better schedule at some point
                 h_x.compute_at(sb, x);
@@ -143,7 +143,7 @@ namespace {
                 sobel_norm.compute_at(sobel_normalized, x);
 
                 sobel_normalized.compute_root();
-                std::cout << "not auto schedule" << std::endl;
+                std::cout << "not auto schedule sobel" << std::endl;
             }
         }
 

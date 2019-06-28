@@ -6,6 +6,7 @@
 #include "matmul.hpp"
 #include "grid_sdf.hpp"
 #include "sobel.stub.h"
+#include "projection.stub.h"
 
 #include <stdio.h>
 
@@ -100,27 +101,6 @@ TupleVec<N> trilinear(const GridSDF& sdf, TupleVec<3> position) {
     }
 }
 
-void apply_auto_schedule(Func F) {
-    std::map<std::string, Internal::Function> flist =
-        Internal::find_transitive_calls(
-            F.function());
-    flist.insert(std::make_pair(F.name(), F.function()));
-    std::map<std::string, Internal::Function>::iterator fit;
-    for (fit = flist.begin(); fit != flist.end(); fit++) {
-        Func f(fit->second);
-        f.compute_root();
-        std::cout << "Warning: applying default schedule to " << f.name() << std::endl;
-    }
-    std::cout << std::endl;
-}
-
-/*Expr example_sphere(Tuple position) {
-    return Halide::sqrt(
-               position[0] * position[0] +
-               position[1] * position[1] +
-               position[2] * position[2]) - 3.0f;
-               }*/
-
 Expr example_sphere(TupleVec<3> position) {
     return norm(position) - 3.0f;
 }
@@ -133,84 +113,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Input<int32_t> width{"width"};
     Input<int32_t> height{"height"};
     Output<Buffer<float>> out_{"out", 3};
-    Output<Buffer<float>> debug_{"debug", 2};
-
-    std::tuple<std::tuple<Func, Func>, Func> projection(Func proj_matrix,
-            Func view_matrix,
-            float near = 0.1f) {
-        // TODO: Get rid of scheduling calls
-        Func rays("rays");
-
-        Func ss_norm;
-        ss_norm(x, y) = {
-            cast<float>(x) / (cast<float>(width)),
-            cast<float>(y) / (cast<float>(height))
-        };
-
-        Func clip_space("clip_space");
-        clip_space(x, y, c) = 1.0f;
-        clip_space(x, y, 0) = ss_norm(x, y)[0] * 2.0f - 1.0f;
-        clip_space(x, y, 1) = ss_norm(x, y)[1] * 2.0f - 1.0f;
-        clip_space.bound(c, 0, 4).unroll(c);
-
-        Func viewproj_inv("viewproj_inv");
-        viewproj_inv =
-            matmul::inverse(matmul::product(proj_matrix, view_matrix));
-
-        Func view_inv("view_inv");
-        view_inv =
-            matmul::inverse(view_matrix);
-        debug_(x, y) = 0.0f;
-
-        RDom k(0, 4);
-        Func homogeneous("homogeneous");
-        homogeneous(x, y, c) = sum(viewproj_inv(c, k) *
-                                   clip_space(x, y, k));
-        homogeneous.bound(c, 0, 4).unroll(c);
-        viewproj_inv.compute_at(homogeneous, x);
-
-        Func origin("origin");
-        origin(c) = view_inv(c, 3);
-        origin.bound(c, 0, 4).unroll(c);
-
-        Func projected("projected");
-        projected(x, y, c) = (homogeneous(x, y, c) / homogeneous(x, y, 3))
-                             - origin(c);
-        projected.bound(c, 0, 4).unroll(c);
-        homogeneous.compute_at(projected, x);
-        origin.compute_at(projected, x);
-
-        Func ray_vec("ray_vec");
-        RDom norm_k(0, 3);
-        // could use fast inverse sqrt, but not worth accuracy loss
-        Expr ray_vec_norm = Halide::sqrt(
-                                sum(
-                                    projected(x, y, norm_k) *
-                                    projected(x, y, norm_k)));
-        ray_vec(x, y) = Tuple(projected(x, y, 0) / ray_vec_norm,
-                              projected(x, y, 1) / ray_vec_norm,
-                              projected(x, y, 2) / ray_vec_norm);
-        projected.compute_at(ray_vec, x);
-
-        Func ray_pos("ray_pos");
-        //ray_pos(x, y, c) = origin(c) + ray_vec(x, y, c) * near;
-        ray_pos(x, y) = Tuple(origin(0) + ray_vec(x, y)[0] * near,
-                              origin(1) + ray_vec(x, y)[1] * near,
-                              origin(2) + ray_vec(x, y)[2] * near);
-
-        //Func projection_result("projection_result");
-        //projection_result(x, y) = {ray_pos(x, y), ray_vec(x, y)};
-        //ray_vec.compute_at(projection_result, x);
-        //ray_pos.compute_at(projection_result, x);
-
-        //apply_auto_schedule(projection_result);
-
-        std::tuple<Func, Func> projection_result(ray_pos, ray_vec);
-        apply_auto_schedule(ray_pos);
-        apply_auto_schedule(ray_vec);
-
-        return std::make_tuple(projection_result, origin);
-    }
 
     Expr normal_pdf(Expr x, float sigma = 1e-7f, float mean = 0.0f) {
         return (1.0f / Halide::sqrt(2.0f * (float) M_PI * sigma * sigma)) *
@@ -293,7 +195,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     GridSDF call_sobel(GridSDF sdf) {
-        Func sb = sobel::generate(Halide::GeneratorContext(this->get_target(), true),
+        Func sb = sobel::generate(Halide::GeneratorContext(this->get_target(), false),
                                   {sdf.buffer, sdf.nx, sdf.ny, sdf.nz});
 
         return GridSDF(sb, sdf.p0, sdf.p1, sdf.nx, sdf.ny, sdf.nz);
@@ -305,9 +207,19 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func ray_vec("ray_vec");
         Func origin("origin");
 
-        std::forward_as_tuple(std::tie(original_ray_pos,
+        /*std::forward_as_tuple(std::tie(original_ray_pos,
                                        ray_vec), origin) =
-                                           projection(projection_, view_);
+                                           projection(projection_, view_);*/
+        auto outputs = projection::generate(Halide::GeneratorContext(this->get_target(), false),
+                                            {projection_, view_, width, height});
+        original_ray_pos = outputs.ray_pos;
+        ray_vec = outputs.ray_vec;
+        origin = outputs.origin;
+
+        original_ray_pos.compute_root();
+        ray_vec.compute_root();
+        origin.compute_root();
+
         Func pos("pos");
         Expr d("d");
         Func depth("depth");
@@ -354,9 +266,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func original_ray_vec("original_ray_vec");
         Func origin("origin");
 
-        std::forward_as_tuple(std::tie(original_ray_pos,
+        /*std::forward_as_tuple(std::tie(original_ray_pos,
                                        original_ray_vec), origin) =
-                                           projection(projection_, view_);
+                                       projection(projection_, view_);*/
+
+
         original_ray_pos.compute_root();
         original_ray_vec.compute_root();
 
