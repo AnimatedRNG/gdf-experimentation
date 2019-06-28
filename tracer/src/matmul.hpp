@@ -8,7 +8,7 @@ using namespace Halide;
 
 namespace matmul {
     // based on MESA 4x4 inverse
-    Func inverse(Func mat) {
+    inline Func inverse(Func mat) {
         Func inv("inv");
         Var mi, mj;
 
@@ -148,7 +148,7 @@ namespace matmul {
         return invOut;
     }
 
-    Func product(Func a, Func b, unsigned int t = 4) {
+    inline Func product(Func a, Func b, unsigned int t = 4) {
         Var mi, mj, mk;
 
         Func prod;
@@ -161,7 +161,7 @@ namespace matmul {
     }
 
     template <typename T>
-    Func product(Func a, T b) {
+    inline Func product(Func a, T b) {
         Var mi, mj;
 
         Func prod;
@@ -231,7 +231,7 @@ class TupleVec final {
 };
 
 template <typename T, unsigned int N>
-TupleVec<N> cast(TupleVec<N> const& v) {
+inline TupleVec<N> cast(TupleVec<N> const& v) {
     std::vector<Expr> output(N);
 
     for (unsigned int i = 0; i < N; i++) {
@@ -242,7 +242,7 @@ TupleVec<N> cast(TupleVec<N> const& v) {
 }
 
 template <unsigned int N>
-TupleVec<N> operator+(TupleVec<N> const& lhs, Tuple const& rhs) {
+inline TupleVec<N> operator+(TupleVec<N> const& lhs, Tuple const& rhs) {
     if (rhs.size() == N) {
         std::vector<Expr> output(N);
 
@@ -257,17 +257,17 @@ TupleVec<N> operator+(TupleVec<N> const& lhs, Tuple const& rhs) {
 }
 
 template <unsigned int N>
-TupleVec<N> operator+(Tuple const& lhs, TupleVec<N> const& rhs) {
+inline TupleVec<N> operator+(Tuple const& lhs, TupleVec<N> const& rhs) {
     return rhs + lhs;
 }
 
 template <unsigned int N>
-TupleVec<N> operator+(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
+inline TupleVec<N> operator+(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
     return lhs + rhs.get();
 }
 
 template <unsigned int N>
-TupleVec<N> operator+(TupleVec<N> const& lhs, Expr const& rhs) {
+inline TupleVec<N> operator+(TupleVec<N> const& lhs, Expr const& rhs) {
     std::vector<Expr> output(N);
 
     for (unsigned int i = 0; i < N; i++) {
@@ -278,12 +278,12 @@ TupleVec<N> operator+(TupleVec<N> const& lhs, Expr const& rhs) {
 }
 
 template <unsigned int N>
-TupleVec<N> operator+(Expr const& lhs, TupleVec<N> const& rhs) {
+inline TupleVec<N> operator+(Expr const& lhs, TupleVec<N> const& rhs) {
     return rhs + lhs;
 }
 
 template <unsigned int N>
-TupleVec<N> operator-(TupleVec<N> const& lhs, Tuple const& rhs) {
+inline TupleVec<N> operator-(TupleVec<N> const& lhs, Tuple const& rhs) {
     if (rhs.size() == N) {
         std::vector<Expr> output(N);
 
@@ -298,7 +298,7 @@ TupleVec<N> operator-(TupleVec<N> const& lhs, Tuple const& rhs) {
 }
 
 template <unsigned int N>
-TupleVec<N> operator-(Tuple const& lhs, TupleVec<N> const& rhs) {
+inline TupleVec<N> operator-(Tuple const& lhs, TupleVec<N> const& rhs) {
     if (rhs.size() == N) {
         std::vector<Expr> output(N);
 
@@ -313,12 +313,12 @@ TupleVec<N> operator-(Tuple const& lhs, TupleVec<N> const& rhs) {
 }
 
 template <unsigned int N>
-TupleVec<N> operator-(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
+inline TupleVec<N> operator-(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
     return lhs - rhs.get();
 }
 
 template <unsigned int N>
-TupleVec<N> operator-(TupleVec<N> const& lhs, Expr const& rhs) {
+inline TupleVec<N> operator-(TupleVec<N> const& lhs, Expr const& rhs) {
     std::vector<Expr> output(N);
 
     for (unsigned int i = 0; i < N; i++) {
@@ -329,7 +329,7 @@ TupleVec<N> operator-(TupleVec<N> const& lhs, Expr const& rhs) {
 }
 
 template <unsigned int N>
-TupleVec<N> operator-(Expr const& lhs, TupleVec<N> const& rhs) {
+inline TupleVec<N> operator-(Expr const& lhs, TupleVec<N> const& rhs) {
     std::vector<Expr> output(N);
 
     for (unsigned int i = 0; i < N; i++) {
@@ -340,7 +340,7 @@ TupleVec<N> operator-(Expr const& lhs, TupleVec<N> const& rhs) {
 }
 
 template <unsigned int N>
-TupleVec<N> operator*(TupleVec<N> const& lhs, Tuple const& rhs) {
+inline TupleVec<N> operator*(TupleVec<N> const& lhs, Tuple const& rhs) {
     if (rhs.size() == N) {
         std::vector<Expr> output(N);
 
@@ -355,17 +355,17 @@ TupleVec<N> operator*(TupleVec<N> const& lhs, Tuple const& rhs) {
 }
 
 template <unsigned int N>
-TupleVec<N> operator*(Tuple const& lhs, TupleVec<N> const& rhs) {
+inline TupleVec<N> operator*(Tuple const& lhs, TupleVec<N> const& rhs) {
     return rhs * lhs;
 }
 
 template <unsigned int N>
-TupleVec<N> operator*(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
+inline TupleVec<N> operator*(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
     return lhs * rhs.get();
 }
 
 template <unsigned int N>
-TupleVec<N> operator*(TupleVec<N> const& lhs, Expr const& rhs) {
+inline TupleVec<N> operator*(TupleVec<N> const& lhs, Expr const& rhs) {
     std::vector<Expr> output(N);
 
     for (unsigned int i = 0; i < N; i++) {
@@ -376,12 +376,12 @@ TupleVec<N> operator*(TupleVec<N> const& lhs, Expr const& rhs) {
 }
 
 template <unsigned int N>
-TupleVec<N> operator*(Expr const& lhs, TupleVec<N> const& rhs) {
+inline TupleVec<N> operator*(Expr const& lhs, TupleVec<N> const& rhs) {
     return rhs * lhs;
 }
 
 template <unsigned int N>
-TupleVec<N> operator/(TupleVec<N> const& lhs, Tuple const& rhs) {
+inline TupleVec<N> operator/(TupleVec<N> const& lhs, Tuple const& rhs) {
     if (rhs.size() == N) {
         std::vector<Expr> output(N);
 
@@ -396,7 +396,7 @@ TupleVec<N> operator/(TupleVec<N> const& lhs, Tuple const& rhs) {
 }
 
 template <unsigned int N>
-TupleVec<N> operator/(Tuple const& lhs, TupleVec<N> const& rhs) {
+inline TupleVec<N> operator/(Tuple const& lhs, TupleVec<N> const& rhs) {
     if (rhs.size() == N) {
         std::vector<Expr> output(N);
 
@@ -411,12 +411,12 @@ TupleVec<N> operator/(Tuple const& lhs, TupleVec<N> const& rhs) {
 }
 
 template <unsigned int N>
-TupleVec<N> operator/(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
+inline TupleVec<N> operator/(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
     return lhs / rhs.get();
 }
 
 template <unsigned int N>
-TupleVec<N> operator/(TupleVec<N> const& lhs, Expr const& rhs) {
+inline TupleVec<N> operator/(TupleVec<N> const& lhs, Expr const& rhs) {
     std::vector<Expr> output(N);
 
     for (unsigned int i = 0; i < N; i++) {
@@ -427,7 +427,7 @@ TupleVec<N> operator/(TupleVec<N> const& lhs, Expr const& rhs) {
 }
 
 template <unsigned int N>
-TupleVec<N> operator/(Expr const& lhs, TupleVec<N> const& rhs) {
+inline TupleVec<N> operator/(Expr const& lhs, TupleVec<N> const& rhs) {
     std::vector<Expr> output(N);
 
     for (unsigned int i = 0; i < N; i++) {
@@ -437,7 +437,7 @@ TupleVec<N> operator/(Expr const& lhs, TupleVec<N> const& rhs) {
     return TupleVec<N>(Tuple(output));
 }
 
-Expr dot(Tuple const& lhs, Tuple const& rhs) {
+inline Expr dot(Tuple const& lhs, Tuple const& rhs) {
     if (lhs.size() == rhs.size()) {
         Expr result = lhs[0] * rhs[0];
         for (unsigned int i = 1; i < lhs.size(); i++) {
@@ -451,21 +451,21 @@ Expr dot(Tuple const& lhs, Tuple const& rhs) {
 }
 
 template <unsigned int N>
-Expr dot(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
+inline Expr dot(TupleVec<N> const& lhs, TupleVec<N> const& rhs) {
     return dot(lhs.get(), rhs.get());
 }
 
 template <unsigned int N>
-Expr dot(TupleVec<N> const& lhs, Tuple const& rhs) {
+inline Expr dot(TupleVec<N> const& lhs, Tuple const& rhs) {
     return dot(lhs.get(), rhs);
 }
 
 template <unsigned int N>
-Expr dot(Tuple const& lhs, TupleVec<N> const& rhs) {
+inline Expr dot(Tuple const& lhs, TupleVec<N> const& rhs) {
     return dot(lhs, rhs.get());
 }
 
-Expr norm(Tuple const& vec) {
+inline Expr norm(Tuple const& vec) {
     Expr result = vec[0] * vec[0];
     for (unsigned int i = 1; i < vec.size(); i++) {
         result += vec[i] * vec[i];
@@ -475,12 +475,12 @@ Expr norm(Tuple const& vec) {
 }
 
 template <unsigned int N>
-Expr norm(TupleVec<N> const& vec) {
+inline Expr norm(TupleVec<N> const& vec) {
     return norm(vec.get());
 }
 
 template <unsigned int N>
-TupleVec<N> build(std::function<Expr(unsigned int)> f) {
+inline TupleVec<N> build(std::function<Expr(unsigned int)> f) {
     std::vector<Expr> result(N);
 
     for (unsigned int i = 0; i < N; i++) {
@@ -490,7 +490,7 @@ TupleVec<N> build(std::function<Expr(unsigned int)> f) {
     return TupleVec<N>(Tuple(result));
 }
 
-Tuple apply(Tuple const& vec, std::function<Expr(const Expr&)> f) {
+inline Tuple apply(Tuple const& vec, std::function<Expr(const Expr&)> f) {
     std::vector<Expr> result(vec.size());
 
     for (unsigned int i = 0; i < vec.size(); i++) {
@@ -501,11 +501,11 @@ Tuple apply(Tuple const& vec, std::function<Expr(const Expr&)> f) {
 }
 
 template <unsigned int N>
-TupleVec<N> apply(TupleVec<N> const& vec, std::function<Expr(const Expr&)> f) {
+inline TupleVec<N> apply(TupleVec<N> const& vec, std::function<Expr(const Expr&)> f) {
     return TupleVec<N>(apply(vec.get(), f));
 }
 
-Tuple apply(Tuple const& vec, std::function<Expr(const Expr&, unsigned int)> f) {
+inline Tuple apply(Tuple const& vec, std::function<Expr(const Expr&, unsigned int)> f) {
     std::vector<Expr> result(vec.size());
 
     for (unsigned int i = 0; i < vec.size(); i++) {
@@ -516,6 +516,6 @@ Tuple apply(Tuple const& vec, std::function<Expr(const Expr&, unsigned int)> f) 
 }
 
 template <unsigned int N>
-TupleVec<N> apply(TupleVec<N> const& vec, std::function<Expr(const Expr&, unsigned int)> f) {
+inline TupleVec<N> apply(TupleVec<N> const& vec, std::function<Expr(const Expr&, unsigned int)> f) {
     return TupleVec<N>(apply(vec.get(), f));
 }

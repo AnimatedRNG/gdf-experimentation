@@ -4,6 +4,8 @@
 #include "Halide.h"
 
 #include "matmul.hpp"
+#include "grid_sdf.hpp"
+#include "sobel.stub.h"
 
 #include <stdio.h>
 
@@ -12,42 +14,7 @@ using namespace Halide;
 constexpr static int iterations = 300;
 
 Var x("x"), y("y"), c("c"), t("t");
-Var dx("dx"), dy("dy"), dz("dz");
 RDom tr;
-
-class GridSDF {
-  public:
-
-    GridSDF(Halide::Func _buffer, TupleVec<3> _p0, TupleVec<3> _p1, int n0, int n1,
-            int n2) :
-        buffer(_buffer),
-        p0(_p0),
-        p1(_p1),
-        n({n0, n1, n2}), nx(n0), ny(n1), nz(n2) { }
-
-    Halide::Func buffer;
-    TupleVec<3> p0;
-    TupleVec<3> p1;
-    TupleVec<3> n;
-
-    int nx, ny, nz;
-};
-
-// For debugging analytical functions
-GridSDF to_grid_sdf(std::function<Expr(TupleVec<3>)> sdf,
-                    TupleVec<3> p0,
-                    TupleVec<3> p1,
-                    int nx, int ny, int nz) {
-    Func field_func("field_func");
-    field_func(dx, dy, dz) = sdf(TupleVec<3>({
-        (dx / cast<float>(nx)) * (p1[0] - p0[0]) + p0[0],
-        (dy / cast<float>(ny)) * (p1[1] - p0[1]) + p0[1],
-        (dz / cast<float>(nz)) * (p1[2] - p0[2]) + p0[2]
-    }));
-    Halide::Buffer<float> buffer = field_func.realize(nx, ny, nz);
-
-    return GridSDF(Func(buffer), p0, p1, nx, ny, nz);
-}
 
 // effectively converts a GridSDF into a regular SDF
 template <unsigned int N>
@@ -325,7 +292,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return total_light;
     }
 
-    Func h(GridSDF sdf, unsigned int dim) {
+    /*Func h(GridSDF sdf, unsigned int dim) {
         float h_kern[3] = {1.f, 2.f, 1.f};
         Func h_conv("h_conv");
 
@@ -424,6 +391,12 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         sobel_normalized.compute_root();
 
         return GridSDF(sobel_normalized, sdf.p0, sdf.p1, sdf.nx, sdf.ny, sdf.nz);
+    }*/
+
+    GridSDF call_sobel(GridSDF sdf) {
+        Func sb = sobel::generate(this, {sdf.buffer, sdf.nx, sdf.ny, sdf.nz});
+
+        return GridSDF(sb, sdf.p0, sdf.p1, sdf.nx, sdf.ny, sdf.nz);
     }
 
     Func sphere_trace(const GridSDF& sdf,
@@ -439,7 +412,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Expr d("d");
         Func depth("depth");
 
-        GridSDF sb = sobel(sdf);
+        GridSDF sb = call_sobel(sdf);
 
         // Remember how update definitions work
         pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
@@ -458,17 +431,17 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                             1.0f).get();
 
         Func endpoint("endpoint");
-        //endpoint(x, y) = pos(x, y, iterations - 1);
+        endpoint(x, y) = pos(x, y, iterations - 1);
         /*endpoint(x, y) = {depth(x, y, iterations),
                           depth(x, y, iterations),
                           depth(x, y, iterations)
                           };*/
-        endpoint(x, y) = shaded(x, y, iterations - 1);
+        //endpoint(x, y) = shaded(x, y, iterations - 1);
         endpoint.compute_root();
         pos.unroll(t);
         //pos.compute_at(endpoint, x);
         //pos.store_at(endpoint, x);
-        apply_auto_schedule(shaded);
+        //apply_auto_schedule(shaded);
         //apply_auto_schedule(pos);
 
         return endpoint;
@@ -515,6 +488,10 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //out_(x, y, 0) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[0], 0.0f, 1.0f);
         //out_(x, y, 1) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[1], 0.0f, 1.0f);
         //out_(x, y, 2) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[2], 0.0f, 1.0f);
+    }
+
+    void schedule() {
+        //sobel::schedule();
     }
 };
 

@@ -26,8 +26,8 @@ int main() {
         {-0.3166, 1.1503, 8.8977, 1.0}
     };
 
-    int width = 200;
-    int height = 200;
+    int width = 100;
+    int height = 100;
 
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);

@@ -19,5 +19,14 @@ endif(INCLUDE_PLOTS)
 
 halide_use_image_io(tracer)
 target_include_directories(tracer PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}" ${PLOTTING_INCLUDE_DIR} ${PLOTTING_INCLUDE_DIRS} "${CMAKE_SOURCE_DIR}/include")
-halide_library(tracer_render SRCS src/tracer_generator.cpp)
+
+halide_generator(sobel.generator SRCS src/sobel_generator.cpp)
+halide_library_from_generator(sobel GENERATOR sobel.generator
+                                    #GENERATOR_ARGS auto_schedule=true
+                                    )
+
+halide_library(tracer_render SRCS src/tracer_generator.cpp
+                             GENERATOR_DEPS sobel.generator
+                             #GENERATOR_ARGS auto_schedule=true
+                             )
 target_link_libraries(tracer PUBLIC ${CMAKE_THREAD_LIBS_INIT} ${PLOTTING_LIBRARIES} tracer_render)
