@@ -304,22 +304,23 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         TupleVec<3> self_light_pos = origin;
 
         Func top_light("top_light"), self_light("self_light");
-        top_light(x, y, t) = {0.0f, 0.0f, 0.0f};
-        top_light(x, y, tr) = light_source(top_light_color,
-                                           positions,
-                                           top_light_pos,
-                                           normals)(x, y, tr);
-        self_light(x, y, t) = {0.0f, 0.0f, 0.0f};
-        self_light(x, y, tr) = light_source(self_light_color,
-                                            positions,
-                                            self_light_pos,
-                                            normals)(x, y, tr);
+        top_light = light_source(top_light_color,
+                                 positions,
+                                 top_light_pos,
+                                 normals);
+        self_light = light_source(self_light_color,
+                                  positions,
+                                  self_light_pos,
+                                  normals);
 
         Func total_light("total_light");
         total_light(x, y, t) = {0.0f, 0.0f, 0.0f};
         total_light(x, y, tr) = (TupleVec<3>(top_light(x, y, tr))
                                  + TupleVec<3>(self_light(x, y, tr))).get();
         //total_light.trace_stores();
+
+        top_light.compute_at(total_light, x);
+        self_light.compute_at(total_light, x);
 
         return total_light;
     }
@@ -387,13 +388,13 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func h_x("h_x"), h_y("h_y"), h_z("h_z");
         Func h_p_x("h_p_x"), h_p_y("h_p_y"), h_p_z("h_p_z");
 
-        h_x(x, y, c) = h(sdf, 0)(x, y, c);
-        h_y(x, y, c) = h(sdf, 1)(x, y, c);
-        h_z(x, y, c) = h(sdf, 2)(x, y, c);
+        h_x = h(sdf, 0);
+        h_y = h(sdf, 1);
+        h_z = h(sdf, 2);
 
-        h_p_x(x, y, c) = h_p(sdf, 0)(x, y, c);
-        h_p_y(x, y, c) = h_p(sdf, 1)(x, y, c);
-        h_p_z(x, y, c) = h_p(sdf, 2)(x, y, c);
+        h_p_x = h_p(sdf, 0);
+        h_p_y = h_p(sdf, 1);
+        h_p_z = h_p(sdf, 2);
 
         sb(x, y, c) = {
             max(h_p_x(x, y, c) * h_y(x, y, c) * h_z(x, y, c), 1e-6f),
