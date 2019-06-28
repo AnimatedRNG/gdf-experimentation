@@ -22,7 +22,7 @@ target_include_directories(tracer PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOL
 
 halide_generator(sobel.generator SRCS src/sobel_generator.cpp)
 halide_library_from_generator(sobel GENERATOR sobel.generator
-                                    #GENERATOR_ARGS auto_schedule=true
+                                    GENERATOR_ARGS auto_schedule=true
                                     )
 
 halide_library(tracer_render SRCS src/tracer_generator.cpp

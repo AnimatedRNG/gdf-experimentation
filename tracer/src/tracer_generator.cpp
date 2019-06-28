@@ -292,109 +292,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return total_light;
     }
 
-    /*Func h(GridSDF sdf, unsigned int dim) {
-        float h_kern[3] = {1.f, 2.f, 1.f};
-        Func h_conv("h_conv");
-
-        switch (dim) {
-            case 0:
-                h_conv(x, y, c) =
-                    sdf.buffer(max(x - 1, 0), y, c) * h_kern[0] +
-                    sdf.buffer(x, y, c) * h_kern[1] +
-                    sdf.buffer(min(x + 1, sdf.n[0] - 1), y, c) * h_kern[2];
-                break;
-            case 1:
-                h_conv(x, y, c) =
-                    sdf.buffer(x, max(y - 1, 0), c) * h_kern[0] +
-                    sdf.buffer(x, y, c) * h_kern[1] +
-                    sdf.buffer(x, min(y + 1, sdf.n[1] - 1), c) * h_kern[2];
-                break;
-            case 2:
-                h_conv(x, y, c) =
-                    sdf.buffer(x, y, max(c - 1, 0)) * h_kern[0] +
-                    sdf.buffer(x, y, c) * h_kern[1] +
-                    sdf.buffer(x, y, min(c + 1, sdf.n[2] - 1)) * h_kern[2];
-                break;
-            default:
-                throw std::out_of_range("invalid dim for h");
-        };
-
-        return h_conv;
-    }
-
-    Func h_p(GridSDF sdf, unsigned int dim) {
-        float h_p_kern[2] = {1.f, -1.f};
-        Func h_p_conv("h_p_conv");
-
-        switch (dim) {
-            case 0:
-                h_p_conv(x, y, c) =
-                    sdf.buffer(max(x - 1, 0), y, c) * h_p_kern[0] +
-                    sdf.buffer(min(x + 1, sdf.n[0] - 1), y, c) * h_p_kern[1];
-                break;
-            case 1:
-                h_p_conv(x, y, c) =
-                    sdf.buffer(x, max(y - 1, 0), c) * h_p_kern[0] +
-                    sdf.buffer(x, min(y + 1, sdf.n[1] - 1), c) * h_p_kern[1];
-                break;
-            case 2:
-                h_p_conv(x, y, c) =
-                    sdf.buffer(x, y, max(c - 1, 0)) * h_p_kern[0] +
-                    sdf.buffer(x, y, min(c + 1, sdf.n[2] - 1)) * h_p_kern[1];
-                break;
-            default:
-                throw std::out_of_range("invalid dim for h_p");
-        };
-
-        return h_p_conv;
-    }
-
-    GridSDF sobel(GridSDF sdf) {
-        Func sb("sobel");
-
-        Func h_x("h_x"), h_y("h_y"), h_z("h_z");
-        Func h_p_x("h_p_x"), h_p_y("h_p_y"), h_p_z("h_p_z");
-
-        h_x = h(sdf, 0);
-        h_y = h(sdf, 1);
-        h_z = h(sdf, 2);
-
-        h_p_x = h_p(sdf, 0);
-        h_p_y = h_p(sdf, 1);
-        h_p_z = h_p(sdf, 2);
-
-        sb(x, y, c) = {
-            max(h_p_x(x, y, c) * h_y(x, y, c) * h_z(x, y, c), 1e-6f),
-            max(h_p_y(x, y, c) * h_z(x, y, c) * h_x(x, y, c), 1e-6f),
-            max(h_p_z(x, y, c) * h_x(x, y, c) * h_y(x, y, c), 1e-6f)
-        };
-
-        // TODO: come up with a better schedule at some point
-        h_x.compute_at(sb, x);
-        h_y.compute_at(sb, y);
-        h_z.compute_at(sb, c);
-
-        h_p_x.compute_at(sb, x);
-        h_p_y.compute_at(sb, y);
-        h_p_z.compute_at(sb, c);
-
-        Func sobel_norm("sobel_norm");
-        sobel_norm(x, y, c) = norm(sb(x, y, c));
-
-        Func sobel_normalized("sobel_normalized");
-        sobel_normalized(x, y, c) = (TupleVec<3>(sb(x, y, c))
-                                     / Expr(sobel_norm(x, y, c))).get();
-
-        sb.compute_at(sobel_normalized, x);
-        sobel_norm.compute_at(sobel_normalized, x);
-
-        sobel_normalized.compute_root();
-
-        return GridSDF(sobel_normalized, sdf.p0, sdf.p1, sdf.nx, sdf.ny, sdf.nz);
-    }*/
-
     GridSDF call_sobel(GridSDF sdf) {
-        Func sb = sobel::generate(this, {sdf.buffer, sdf.nx, sdf.ny, sdf.nz});
+        Func sb = sobel::generate(Halide::GeneratorContext(this->get_target(), true),
+                                  {sdf.buffer, sdf.nx, sdf.ny, sdf.nz});
 
         return GridSDF(sb, sdf.p0, sdf.p1, sdf.nx, sdf.ny, sdf.nz);
     }
@@ -488,10 +388,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //out_(x, y, 0) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[0], 0.0f, 1.0f);
         //out_(x, y, 1) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[1], 0.0f, 1.0f);
         //out_(x, y, 2) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[2], 0.0f, 1.0f);
-    }
-
-    void schedule() {
-        //sobel::schedule();
     }
 };
 

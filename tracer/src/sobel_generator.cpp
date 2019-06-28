@@ -120,9 +120,7 @@ namespace {
 
             normals_(x, y, z) = (TupleVec<3>(sb(x, y, z))
                                  / Expr(sobel_norm(x, y, z))).get();
-        }
 
-        void schedule() {
             if (auto_schedule) {
                 /*sdf_.estimate(x, 0, 64)
                 .estimate(y, 0, 64)
