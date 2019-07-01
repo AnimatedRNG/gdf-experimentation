@@ -115,7 +115,7 @@ namespace {
             intermediates.push_back(h_p_y);
             intermediates.push_back(h_p_z);
 
-            sobel_norm(x, y, z) = norm(sb(x, y, z));
+            sobel_norm(x, y, z) = norm(sb(x, y, z)) * -1.0f;
             intermediates.push_back(sobel_norm);
 
             normals_(x, y, z) = (TupleVec<3>(sb(x, y, z))
@@ -139,10 +139,10 @@ namespace {
                 h_p_y.compute_at(sb, y);
                 h_p_z.compute_at(sb, z);
 
-                sb.compute_at(sobel_normalized, x);
-                sobel_norm.compute_at(sobel_normalized, x);
+                sb.compute_at(normals_, x);
+                sobel_norm.compute_at(normals_, x);
+                normals_.compute_root();
 
-                sobel_normalized.compute_root();
                 std::cout << "not auto schedule sobel" << std::endl;
             }
         }

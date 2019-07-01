@@ -148,18 +148,19 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             (TupleVec<3>(light_vec(x, y, tr))
              / Expr(light_vec_norm(x, y, tr))).get();
 
-        Func ray_position("ray_position");
-        ray_position(x, y, t) = {0.0f, 0.0f, 0.0f};
-        ray_position(x, y, tr) = (TupleVec<3>(positions(x, y, tr)) +
-                                  Tuple(light_vec_normalized(x, y, tr))).get();
-
         TupleVec<3> normal_sample =
             trilinear<3>(normals, TupleVec<3>(Tuple(positions(x, y, tr))));
         Func diffuse("diffuse");
         diffuse(x, y, t) = {0.0f, 0.0f, 0.0f};
         diffuse(x, y, tr) = (kd * clamp(dot(normal_sample,
-                                            Tuple(light_vec(x, y, tr))),
-                                        0.0f, 1.0f) * light_color).get();
+                                            Tuple(light_vec_normalized(x, y, tr))),
+                                            0.0f, 1.0f) * light_color).get();
+        //diffuse(x, y, tr) = ((kd * Expr(1.0f)) * light_color).get();
+
+        light_vec.compute_at(diffuse, x);
+        light_vec_norm.compute_at(light_vec_normalized, x);
+
+        light_vec_normalized.compute_at(diffuse, x);
 
         return diffuse;
     }
@@ -190,13 +191,22 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         top_light.compute_at(total_light, x);
         self_light.compute_at(total_light, x);
+        //total_light.compute_root();
+
+        //top_light.trace_stores();
+        //top_light.trace_loads();
+
+        //total_light.trace_stores();
+        //total_light.trace_loads();
 
         return total_light;
     }
 
     GridSDF call_sobel(GridSDF sdf) {
         Func sb = sobel::generate(Halide::GeneratorContext(this->get_target(), false),
-                                  {sdf.buffer, sdf.nx, sdf.ny, sdf.nz});
+        {sdf.buffer, sdf.nx, sdf.ny, sdf.nz});
+        //sb.compute_root();
+        //sb.trace_loads();
 
         return GridSDF(sb, sdf.p0, sdf.p1, sdf.nx, sdf.ny, sdf.nz);
     }
@@ -210,8 +220,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         /*std::forward_as_tuple(std::tie(original_ray_pos,
                                        ray_vec), origin) =
                                            projection(projection_, view_);*/
-        auto outputs = projection::generate(Halide::GeneratorContext(this->get_target(), false),
-                                            {projection_, view_, width, height});
+        auto outputs = projection::generate(Halide::GeneratorContext(this->get_target(),
+                                            false),
+        {projection_, view_, width, height});
         original_ray_pos = outputs.ray_pos;
         ray_vec = outputs.ray_vec;
         origin = outputs.origin;
@@ -238,18 +249,19 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         Func shaded("shaded");
         shaded(x, y, t) = {0.0f, 0.0f, 0.0f};
-        shaded(x, y, tr) = (TupleVec<3>(
-                                shade(pos, {origin(0), origin(1), origin(2)}, sb)(x, y, tr)) *
-                            1.0f).get();
+        shaded(x, y, tr) = shade(pos, {origin(0), origin(1), origin(2)}, sb)(x, y, tr);
+        shaded.compute_root();
 
         Func endpoint("endpoint");
-        endpoint(x, y) = pos(x, y, iterations - 1);
+        //endpoint(x, y) = pos(x, y, iterations - 1);
         /*endpoint(x, y) = {depth(x, y, iterations),
                           depth(x, y, iterations),
                           depth(x, y, iterations)
                           };*/
-        //endpoint(x, y) = shaded(x, y, iterations - 1);
+        endpoint(x, y) = shaded(x, y, iterations - 1);
+        //shaded.trace_stores();
         endpoint.compute_root();
+        apply_auto_schedule(endpoint);
         pos.unroll(t);
         //pos.compute_at(endpoint, x);
         //pos.store_at(endpoint, x);
@@ -261,18 +273,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
     void generate() {
         tr = RDom(0, iterations);
-
-        Func original_ray_pos("original_ray_pos");
-        Func original_ray_vec("original_ray_vec");
-        Func origin("origin");
-
-        /*std::forward_as_tuple(std::tie(original_ray_pos,
-                                       original_ray_vec), origin) =
-                                       projection(projection_, view_);*/
-
-
-        original_ray_pos.compute_root();
-        original_ray_vec.compute_root();
 
         GridSDF grid_sdf = to_grid_sdf(example_sphere,
         {-4.0f, -4.0f, -4.0f},
