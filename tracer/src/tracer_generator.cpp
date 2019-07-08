@@ -168,10 +168,10 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                         0.0f, 1.0f) * light_color).get();
         //diffuse(x, y, tr) = ((kd * Expr(1.0f)) * light_color).get();
 
-        light_vec.compute_at(diffuse, x);
-        light_vec_norm.compute_at(light_vec_normalized, x);
+        //light_vec.compute_at(diffuse, x);
+        //light_vec_norm.compute_at(light_vec_normalized, x);
 
-        light_vec_normalized.compute_at(diffuse, x);
+        //light_vec_normalized.compute_at(diffuse, x);
 
         return diffuse;
     }
@@ -200,8 +200,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                  + TupleVec<3>(self_light(x, y, tr))).get();
         //total_light.trace_stores();
 
-        top_light.compute_at(total_light, x);
-        self_light.compute_at(total_light, x);
+        //top_light.compute_at(total_light, x);
+        //self_light.compute_at(total_light, x);
         //total_light.compute_root();
 
         //top_light.trace_stores();
@@ -219,7 +219,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     GridSDF call_sobel(GridSDF sdf) {
-        Func sb = sobel::generate(Halide::GeneratorContext(this->get_target(), false),
+        Func sb = sobel::generate(Halide::GeneratorContext(this->get_target(), true),
         {sdf.buffer, sdf.nx, sdf.ny, sdf.nz});
         //sb.compute_root();
         //sb.trace_loads();
@@ -237,15 +237,15 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                        ray_vec), origin) =
                                            projection(projection_, view_);*/
         auto outputs = projection::generate(Halide::GeneratorContext(this->get_target(),
-                                            false),
+                                            true),
         {projection_, view_, width, height});
         original_ray_pos = outputs.ray_pos;
         ray_vec = outputs.ray_vec;
         origin = outputs.origin;
 
-        original_ray_pos.compute_root();
-        ray_vec.compute_root();
-        origin.compute_root();
+        //original_ray_pos.compute_root();
+        //ray_vec.compute_root();
+        //origin.compute_root();
 
         Func pos("pos");
         Expr d("d");
@@ -273,8 +273,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         shaded(x, y, tr) = shade(pos, {origin(0), origin(1), origin(2)},
                                  sb)(x, y, tr);
-        normal_evaluation_position.compute_at(shaded, x);
-        shaded.compute_root();
+        //normal_evaluation_position.compute_at(shaded, x);
+        //shaded.compute_root();
 
         Func endpoint("endpoint");
         //endpoint(x, y) = pos(x, y, iterations - 1);
@@ -284,8 +284,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                           };*/
         endpoint(x, y) = shaded(x, y, iterations - 1);
         //shaded.trace_stores();
-        endpoint.compute_root();
-        apply_auto_schedule(endpoint);
+        //endpoint.compute_root();
+        //apply_auto_schedule(endpoint);
         pos.unroll(t);
         //pos.compute_at(endpoint, x);
         //pos.store_at(endpoint, x);
@@ -326,6 +326,17 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //out_(x, y, 0) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[0], 0.0f, 1.0f);
         //out_(x, y, 1) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[1], 0.0f, 1.0f);
         //out_(x, y, 2) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[2], 0.0f, 1.0f);
+
+        if (auto_schedule) {
+            projection_.dim(0).set_bounds_estimate(0, 4)
+            .dim(1).set_bounds_estimate(0, 4);
+            view_.dim(0).set_bounds_estimate(0, 4)
+            .dim(1).set_bounds_estimate(0, 4);
+
+            out_.dim(0).set_bounds_estimate(0, 1920)
+            .dim(1).set_bounds_estimate(0, 1920)
+            .dim(2).set_bounds_estimate(0, 3);
+        }
     }
 };
 

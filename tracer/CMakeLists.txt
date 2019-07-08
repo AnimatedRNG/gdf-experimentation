@@ -26,7 +26,7 @@ halide_library_from_generator(projection GENERATOR projection.generator
 
 halide_library(tracer_render SRCS src/tracer_generator.cpp
                              GENERATOR_DEPS sobel.generator projection.generator
-                             #GENERATOR_ARGS auto_schedule=true
+                             GENERATOR_ARGS auto_schedule=true
                              EXTRA_OUTPUTS schedule
                              )
 target_link_libraries(tracer PUBLIC ${CMAKE_THREAD_LIBS_INIT} tracer_render)

@@ -14,8 +14,8 @@ namespace matmul {
 
         inv(mi, mj) = 0.0f;
 
-        inv.bound(mi, 0, 4).unroll(mi);
-        inv.bound(mj, 0, 4).unroll(mj);
+        //inv.bound(mi, 0, 4).unroll(mi);
+        //inv.bound(mj, 0, 4).unroll(mj);
 
         inv(0, 0) = mat(1, 1)  * mat(2, 2) * mat(3, 3) -
                     mat(1, 1)  * mat(3, 2) * mat(2, 3) -
@@ -140,8 +140,8 @@ namespace matmul {
         Func invOut("invOut");
 
         invOut(mi, mj) = inv(mi, mj) * det;
-        invOut.bound(mi, 0, 4).unroll(mi);
-        invOut.bound(mj, 0, 4).unroll(mj);
+        //invOut.bound(mi, 0, 4).unroll(mi);
+        //invOut.bound(mj, 0, 4).unroll(mj);
 
         //if (det == 0) return false;
 

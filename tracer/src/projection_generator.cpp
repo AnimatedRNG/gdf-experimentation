@@ -48,7 +48,7 @@ namespace {
             clip_space(x, y, c) = 1.0f;
             clip_space(x, y, 0) = ss_norm(x, y)[0] * 2.0f - 1.0f;
             clip_space(x, y, 1) = ss_norm(x, y)[1] * 2.0f - 1.0f;
-            clip_space.bound(c, 0, 4).unroll(c);
+            //clip_space.bound(c, 0, 4).unroll(c);
 
             viewproj_inv =
                 matmul::inverse(matmul::product(projection_matrix, view_matrix));
@@ -58,14 +58,14 @@ namespace {
 
             homogeneous(x, y, c) = sum(viewproj_inv(c, k) *
                                        clip_space(x, y, k));
-            homogeneous.bound(c, 0, 4).unroll(c);
+            //homogeneous.bound(c, 0, 4).unroll(c);
 
             origin(c) = view_inv(c, 3);
-            origin.bound(c, 0, 4).unroll(c);
+            //origin.bound(c, 0, 4).unroll(c);
 
             projected(x, y, c) = (homogeneous(x, y, c) / homogeneous(x, y, 3))
                                  - origin(c);
-            projected.bound(c, 0, 4).unroll(c);
+            //projected.bound(c, 0, 4).unroll(c);
 
             // could use fast inverse sqrt, but not worth accuracy loss
             Expr ray_vec_norm = Halide::sqrt(
@@ -83,6 +83,7 @@ namespace {
 
             if (auto_schedule) {
                 std::cout << "auto schedule projection" << std::endl;
+                clip_space.estimate(c, 0, 4);
                 projection_.dim(0).set_bounds_estimate(0, 4)
                            .dim(1).set_bounds_estimate(0, 4);
                 view_.dim(0).set_bounds_estimate(0, 4)
