@@ -219,7 +219,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     GridSDF call_sobel(GridSDF sdf) {
-        Func sb = sobel::generate(Halide::GeneratorContext(this->get_target(), true),
+        Func sb = sobel::generate(Halide::GeneratorContext(this->get_target(),
+                                  auto_schedule),
         {sdf.buffer, sdf.nx, sdf.ny, sdf.nz});
         //sb.compute_root();
         //sb.trace_loads();
@@ -237,7 +238,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                        ray_vec), origin) =
                                            projection(projection_, view_);*/
         auto outputs = projection::generate(Halide::GeneratorContext(this->get_target(),
-                                            true),
+                                            auto_schedule),
         {projection_, view_, width, height});
         original_ray_pos = outputs.ray_pos;
         ray_vec = outputs.ray_vec;
@@ -286,7 +287,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //shaded.trace_stores();
         //endpoint.compute_root();
         //apply_auto_schedule(endpoint);
-        pos.unroll(t);
+
+        //pos.unroll(t);
+
         //pos.compute_at(endpoint, x);
         //pos.store_at(endpoint, x);
         //apply_auto_schedule(shaded);

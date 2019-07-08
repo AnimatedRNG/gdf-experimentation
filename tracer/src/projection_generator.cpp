@@ -56,8 +56,10 @@ namespace {
             view_inv =
                 matmul::inverse(view_matrix);
 
-            homogeneous(x, y, c) = sum(viewproj_inv(c, k) *
-                                       clip_space(x, y, k));
+            homogeneous(x, y, c) = 0.0f;
+            //homogeneous(x, y, c) = sum(viewproj_inv(c, k) *
+            //                           clip_space(x, y, k));
+            homogeneous(x, y, c) += viewproj_inv(c, k) * clip_space(x, y, k);
             //homogeneous.bound(c, 0, 4).unroll(c);
 
             origin(c) = view_inv(c, 3);
@@ -68,13 +70,17 @@ namespace {
             //projected.bound(c, 0, 4).unroll(c);
 
             // could use fast inverse sqrt, but not worth accuracy loss
-            Expr ray_vec_norm = Halide::sqrt(
+            /*Expr ray_vec_norm = Halide::sqrt(
                                     sum(
                                         projected(x, y, norm_k) *
-                                        projected(x, y, norm_k)));
-            ray_vec(x, y) = Tuple(projected(x, y, 0) / ray_vec_norm,
-                                  projected(x, y, 1) / ray_vec_norm,
-                                  projected(x, y, 2) / ray_vec_norm);
+                                        projected(x, y, norm_k)));*/
+            Func ray_vec_norm("ray_vec_norm");
+            ray_vec_norm(x, y) += projected(x, y, norm_k) * projected(x, y, norm_k);
+            ray_vec_norm(x, y) = Halide::sqrt(ray_vec_norm(x, y));
+
+            ray_vec(x, y) = Tuple(projected(x, y, 0) / ray_vec_norm(x, y),
+                                  projected(x, y, 1) / ray_vec_norm(x, y),
+                                  projected(x, y, 2) / ray_vec_norm(x, y));
 
             //ray_pos(x, y, c) = origin(c) + ray_vec(x, y, c) * near;
             ray_pos(x, y) = Tuple(origin(0) + ray_vec(x, y)[0] * near,
