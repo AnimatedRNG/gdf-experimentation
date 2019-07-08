@@ -2,14 +2,11 @@
 
 #include "HalideBuffer.h"
 #include "halide_image_io.h"
-#include "matplotlibcpp.h"
 
 #include "tracer_render.h"
 
 using namespace Halide::Runtime;
 using namespace Halide::Tools;
-
-namespace plt = matplotlibcpp;
 
 int main() {
     const float projection_matrix[4][4] = {
