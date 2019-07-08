@@ -105,6 +105,17 @@ Expr example_sphere(TupleVec<3> position) {
     return norm(position) - 3.0f;
 }
 
+Expr vmax(TupleVec<3> v) {
+    return Halide::max(Halide::max(v[0], v[1]), v[2]);
+}
+
+Expr example_box(TupleVec<3> position) {
+    TupleVec<3> b = {3.0f, 3.0f, 3.0f};
+    TupleVec<3> d = abs(position) - b;
+
+    return norm(max(d, Expr(0.0f))) + vmax(min(d, Expr(0.0f)));
+}
+
 class TracerGenerator : public Halide::Generator<TracerGenerator> {
   public:
 
@@ -154,7 +165,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         diffuse(x, y, t) = {0.0f, 0.0f, 0.0f};
         diffuse(x, y, tr) = (kd * clamp(dot(normal_sample,
                                             Tuple(light_vec_normalized(x, y, tr))),
-                                            0.0f, 1.0f) * light_color).get();
+                                        0.0f, 1.0f) * light_color).get();
         //diffuse(x, y, tr) = ((kd * Expr(1.0f)) * light_color).get();
 
         light_vec.compute_at(diffuse, x);
@@ -202,6 +213,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return total_light;
     }
 
+    TupleVec<3> step_back(TupleVec<3> positions, TupleVec<3> ray_vec,
+                          float EPS = 1e-6f) {
+        return (-1.0f * Expr(EPS)) * ray_vec + positions;
+    }
+
     GridSDF call_sobel(GridSDF sdf) {
         Func sb = sobel::generate(Halide::GeneratorContext(this->get_target(), false),
         {sdf.buffer, sdf.nx, sdf.ny, sdf.nz});
@@ -212,7 +228,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     Func sphere_trace(const GridSDF& sdf,
-                      float EPS = 1e-6) {
+                      float EPS = 1e-6f) {
         Func original_ray_pos("original_ray_pos");
         Func ray_vec("ray_vec");
         Func origin("origin");
@@ -249,7 +265,15 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         Func shaded("shaded");
         shaded(x, y, t) = {0.0f, 0.0f, 0.0f};
-        shaded(x, y, tr) = shade(pos, {origin(0), origin(1), origin(2)}, sb)(x, y, tr);
+
+        Func normal_evaluation_position("normal_evaluation_position");
+        normal_evaluation_position(x, y, t) = {0.0f, 0.0f, 0.0f};
+        normal_evaluation_position(x, y, tr) = step_back(
+                TupleVec<3>(pos(x, y, tr)), TupleVec<3>(ray_vec(x, y))).get();
+
+        shaded(x, y, tr) = shade(pos, {origin(0), origin(1), origin(2)},
+                                 sb)(x, y, tr);
+        normal_evaluation_position.compute_at(shaded, x);
         shaded.compute_root();
 
         Func endpoint("endpoint");
@@ -274,7 +298,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     void generate() {
         tr = RDom(0, iterations);
 
-        GridSDF grid_sdf = to_grid_sdf(example_sphere,
+        GridSDF grid_sdf = to_grid_sdf(example_box,
         {-4.0f, -4.0f, -4.0f},
         {4.0f, 4.0f, 4.0f}, 32, 32, 32);
 

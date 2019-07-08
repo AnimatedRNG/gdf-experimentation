@@ -480,6 +480,91 @@ inline Expr norm(TupleVec<N> const& vec) {
 }
 
 template <unsigned int N>
+inline TupleVec<N> abs(TupleVec<N> const& vec) {
+    std::vector<Expr> output(N);
+
+    for (unsigned int i = 0; i < N; i++) {
+        output[i] = abs(vec[i]);
+    }
+
+    return TupleVec<N>(Tuple(output));
+}
+
+template <unsigned int N>
+inline TupleVec<N> min(TupleVec<N> const& vec, Tuple const& other) {
+    std::vector<Expr> output(N);
+
+    for (unsigned int i = 0; i < N; i++) {
+        output[i] = min(vec[i], other[i]);
+    }
+
+    return TupleVec<N>(Tuple(output));
+}
+
+template <unsigned int N>
+inline TupleVec<N> min(Tuple const& vec, TupleVec<N> const& other) {
+    return min(TupleVec<N>(vec), other);
+}
+
+template <unsigned int N>
+inline TupleVec<N> min(TupleVec<N> const& vec, TupleVec<N> const& other) {
+    return min(vec, TupleVec<N>(other));
+}
+
+template <unsigned int N>
+inline TupleVec<N> min(TupleVec<N> const& vec, Expr const& other) {
+    std::vector<Expr> output(N);
+
+    for (unsigned int i = 0; i < N; i++) {
+        output[i] = min(vec[i], other);
+    }
+
+    return TupleVec<N>(Tuple(output));
+}
+
+template <unsigned int N>
+inline TupleVec<N> min(Expr const& other, TupleVec<N> const& vec) {
+    return min(vec, other);
+}
+
+template <unsigned int N>
+inline TupleVec<N> max(TupleVec<N> const& vec, Tuple const& other) {
+    std::vector<Expr> output(N);
+
+    for (unsigned int i = 0; i < N; i++) {
+        output[i] = max(vec[i], other[i]);
+    }
+
+    return TupleVec<N>(Tuple(output));
+}
+
+template <unsigned int N>
+inline TupleVec<N> max(Tuple const& vec, TupleVec<N> const& other) {
+    return max(TupleVec<N>(vec), other);
+}
+
+template <unsigned int N>
+inline TupleVec<N> max(TupleVec<N> const& vec, TupleVec<N> const& other) {
+    return max(vec, TupleVec<N>(other));
+}
+
+template <unsigned int N>
+inline TupleVec<N> max(TupleVec<N> const& vec, Expr const& other) {
+    std::vector<Expr> output(N);
+
+    for (unsigned int i = 0; i < N; i++) {
+        output[i] = max(vec[i], other);
+    }
+
+    return TupleVec<N>(Tuple(output));
+}
+
+template <unsigned int N>
+inline TupleVec<N> max(Expr const& other, TupleVec<N> const& vec) {
+    return max(vec, other);
+}
+
+template <unsigned int N>
 inline TupleVec<N> build(std::function<Expr(unsigned int)> f) {
     std::vector<Expr> result(N);
 
