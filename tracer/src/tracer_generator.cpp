@@ -2,6 +2,7 @@
 #include <tuple>
 
 #include "Halide.h"
+#include "gif.h"
 
 #include "matmul.hpp"
 #include "grid_sdf.hpp"
@@ -15,6 +16,7 @@ using namespace Halide;
 constexpr static int iterations = 300;
 
 Var x("x"), y("y"), c("c"), t("t");
+Var num_img("num_img");
 RDom tr;
 
 // effectively converts a GridSDF into a regular SDF
@@ -124,6 +126,30 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Input<int32_t> width{"width"};
     Input<int32_t> height{"height"};
     Output<Buffer<float>> out_{"out", 3};
+    Output<Buffer<uint8_t>> debug_{"debug", 5};
+    Output<Buffer<int32_t>> num_debug{"num_debug"};
+
+    int current_debug = 0;
+
+    inline void record(Func f,
+                       int32_t iterations = 300,
+                       float delay = 0.03f) {
+        Var x("x"), y("y"), c("c"), t("t");
+
+        Func _realize("_realize_" + f.name());
+        _realize(t, x, y, c) = cast<uint8_t>(0);
+        if (f.outputs() > 1) {
+            _realize(t, x, y, 0) = cast<uint8_t>(f(x, y, t)[0] * 255.0f);
+            _realize(t, x, y, 1) = cast<uint8_t>(f(x, y, t)[1] * 255.0f);
+            _realize(t, x, y, 2) = cast<uint8_t>(f(x, y, t)[2] * 255.0f);
+        } else {
+            _realize(t, x, y, 0) = cast<uint8_t>(f(x, y, t) * 255.0f);
+            _realize(t, x, y, 1) = cast<uint8_t>(f(x, y, t) * 255.0f);
+            _realize(t, x, y, 2) = cast<uint8_t>(f(x, y, t) * 255.0f);
+        }
+
+        debug_(current_debug++, t, x, y, c) = _realize(t, x, y, c);
+    }
 
     Expr normal_pdf(Expr x, float sigma = 1e-7f, float mean = 0.0f) {
         return (1.0f / Halide::sqrt(2.0f * (float) M_PI * sigma * sigma)) *
@@ -274,6 +300,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         shaded(x, y, tr) = shade(pos, {origin(0), origin(1), origin(2)},
                                  sb)(x, y, tr);
+
+        record(pos);
+        record(shaded);
         //normal_evaluation_position.compute_at(shaded, x);
         //shaded.compute_root();
 
@@ -299,6 +328,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     void generate() {
+        debug_(num_img, t, x, y, c) = cast<uint8_t>(0);
         tr = RDom(0, iterations);
 
         GridSDF grid_sdf = to_grid_sdf(example_box,
@@ -311,17 +341,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //std::cout << Buffer<float>(sobel(grid_sdf).realize(32, 32, 32)[0])(0, 0, 0)
         //          << std::endl;
 
-        /*Func val("val");
-        val(dx) = trilinear<1>(grid_sdf, {-3.5f, -3.5f, -3.5f})[0];
-        std::cout << "at (-3.5, -3.5, -3.5) " << Buffer<float>(val.realize(1))(0) <<
-        std::endl;*/
-
-        //out_(x, y, c) =
-        //    matmul::product(matmul::product(Func(b), 3.0f), Func(b))(x, y);
-        //out_(x, y, c) = matmul::inverse(Func(a))(x, y);
-        //out_(x, y, c) = clamp(rays(x, y, 2 - c)[1], 0.0f, 1.0f);
-        //out_(x, y, c) = rays(x, y, c)[1];
-
         out_(x, y, c) = 0.0f;
         out_(x, y, 0) = clamp(end(x, y)[0], 0.0f, 1.0f);
         out_(x, y, 1) = clamp(end(x, y)[1], 0.0f, 1.0f);
@@ -329,6 +348,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //out_(x, y, 0) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[0], 0.0f, 1.0f);
         //out_(x, y, 1) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[1], 0.0f, 1.0f);
         //out_(x, y, 2) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[2], 0.0f, 1.0f);
+
+        num_debug(x) = Func(Expr(current_debug))();
 
         if (auto_schedule) {
             projection_.dim(0).set_bounds_estimate(0, 4)
@@ -339,6 +360,14 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             out_.dim(0).set_bounds_estimate(0, 1920)
             .dim(1).set_bounds_estimate(0, 1920)
             .dim(2).set_bounds_estimate(0, 3);
+
+            debug_
+            .estimate(num_img, 0, current_debug)
+            .estimate(t, 0, 300)
+            .estimate(x, 0, 1920)
+            .estimate(y, 0, 1080)
+            .estimate(c, 0, 3);
+            num_debug.estimate(x, 0, 1);
         }
     }
 };

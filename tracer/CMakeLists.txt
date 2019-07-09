@@ -4,13 +4,21 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/modules/")
 
 include("${HALIDE_DISTRIB_DIR}/halide.cmake")
 
+set(CMAKE_CXX_FLAGS "-Wall -Wextra")
+set(CMAKE_CXX_FLAGS_DEBUG "-g")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+
 find_package(Threads REQUIRED)
 
 add_executable(tracer src/tracer.cpp)
 set_target_properties(tracer PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
 
 halide_use_image_io(tracer)
-target_include_directories(tracer PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}" "${CMAKE_SOURCE_DIR}/include")
+
+set(INCLUDE_DIR "${CMAKE_SOURCE_DIR}/include")
+include_directories(${INCLUDE_DIR})
+
+target_include_directories(tracer PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}")
 
 halide_generator(sobel.generator SRCS src/sobel_generator.cpp)
 halide_library_from_generator(sobel GENERATOR sobel.generator
@@ -19,7 +27,8 @@ halide_library_from_generator(sobel GENERATOR sobel.generator
                                     )
 
 halide_generator(projection.generator SRCS src/projection_generator.cpp)
-halide_library_from_generator(projection GENERATOR projection.generator
+halide_library_from_generator(projection
+                                    GENERATOR projection.generator
                                     GENERATOR_ARGS auto_schedule=true
                                     EXTRA_OUTPUTS schedule
                                     )
@@ -29,4 +38,5 @@ halide_library(tracer_render SRCS src/tracer_generator.cpp
                              GENERATOR_ARGS auto_schedule=true
                              EXTRA_OUTPUTS schedule
                              )
+
 target_link_libraries(tracer PUBLIC ${CMAKE_THREAD_LIBS_INIT} tracer_render)
