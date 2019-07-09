@@ -4,7 +4,6 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/modules/")
 
 include("${HALIDE_DISTRIB_DIR}/halide.cmake")
 
-set(CMAKE_CXX_FLAGS "-Wall -Wextra")
 set(CMAKE_CXX_FLAGS_DEBUG "-g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
