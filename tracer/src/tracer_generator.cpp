@@ -172,25 +172,21 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                       float ks = 0.3f,
                       float ka = 100.0f) {
         Func light_vec("light_vec");
-        light_vec(x, y, t) = {0.0f, 0.0f, 0.0f};
-        light_vec(x, y, tr) = (light_position - Tuple(positions(x, y, tr))).get();
+        light_vec(x, y, t) = (light_position - Tuple(positions(x, y, t))).get();
 
         Func light_vec_norm("light_vec_norm");
-        light_vec_norm(x, y, t) = 0.0f;
-        light_vec_norm(x, y, tr) = norm(TupleVec<3>(light_vec(x, y, tr)));
+        light_vec_norm(x, y, t) = norm(TupleVec<3>(light_vec(x, y, t)));
 
         Func light_vec_normalized("light_vec_normalized");
-        light_vec_normalized(x, y, t) = {0.0f, 0.0f, 0.0f};
-        light_vec_normalized(x, y, tr) =
-            (TupleVec<3>(light_vec(x, y, tr))
-             / Expr(light_vec_norm(x, y, tr))).get();
+        light_vec_normalized(x, y, t) =
+            (TupleVec<3>(light_vec(x, y, t))
+             / Expr(light_vec_norm(x, y, t))).get();
 
         TupleVec<3> normal_sample =
-            trilinear<3>(normals, TupleVec<3>(Tuple(positions(x, y, tr))));
+            trilinear<3>(normals, TupleVec<3>(Tuple(positions(x, y, t))));
         Func diffuse("diffuse");
-        diffuse(x, y, t) = {0.0f, 0.0f, 0.0f};
-        diffuse(x, y, tr) = (kd * clamp(dot(normal_sample,
-                                            Tuple(light_vec_normalized(x, y, tr))),
+        diffuse(x, y, t) = (kd * clamp(dot(normal_sample,
+                                            Tuple(light_vec_normalized(x, y, t))),
                                         0.0f, 1.0f) * light_color).get();
         //diffuse(x, y, tr) = ((kd * Expr(1.0f)) * light_color).get();
 
@@ -221,9 +217,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                   normals);
 
         Func total_light("total_light");
-        total_light(x, y, t) = {0.0f, 0.0f, 0.0f};
-        total_light(x, y, tr) = (TupleVec<3>(top_light(x, y, tr))
-                                 + TupleVec<3>(self_light(x, y, tr))).get();
+        total_light(x, y, t) = (TupleVec<3>(top_light(x, y, t))
+                                 + TupleVec<3>(self_light(x, y, t))).get();
         //total_light.trace_stores();
 
         //top_light.compute_at(total_light, x);
@@ -290,19 +285,17 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         depth(x, y, t) = 0.0f;
         depth(x, y, tr + 1) = d;
 
-        Func shaded("shaded");
-        shaded(x, y, t) = {0.0f, 0.0f, 0.0f};
-
         Func normal_evaluation_position("normal_evaluation_position");
-        normal_evaluation_position(x, y, t) = {0.0f, 0.0f, 0.0f};
-        normal_evaluation_position(x, y, tr) = step_back(
-                TupleVec<3>(pos(x, y, tr)), TupleVec<3>(ray_vec(x, y))).get();
+        normal_evaluation_position(x, y, t) = step_back(
+                TupleVec<3>(pos(x, y, t)), TupleVec<3>(ray_vec(x, y))).get();
 
-        shaded(x, y, tr) = shade(pos, {origin(0), origin(1), origin(2)},
-                                 sb)(x, y, tr);
+        Func shaded("shaded");
+        shaded(x, y, t) = shade(pos, {origin(0), origin(1), origin(2)},
+                                 sb)(x, y, t);
 
         record(pos);
         record(shaded);
+        record(depth);
         //normal_evaluation_position.compute_at(shaded, x);
         //shaded.compute_root();
 
