@@ -102,9 +102,14 @@ namespace {
             h_p_z = h_p(clamped, 2);
 
             sb(x, y, z) = {
-                max(h_p_x(x, y, z) * h_y(x, y, z) * h_z(x, y, z), 1e-6f),
-                max(h_p_y(x, y, z) * h_z(x, y, z) * h_x(x, y, z), 1e-6f),
-                max(h_p_z(x, y, z) * h_x(x, y, z) * h_y(x, y, z), 1e-6f)
+                h_p_x(x, y, z)* h_y(x, y, z)* h_z(x, y, z),
+                h_p_y(x, y, z)* h_z(x, y, z)* h_x(x, y, z),
+                h_p_z(x, y, z)* h_x(x, y, z)* h_y(x, y, z)
+            };
+            sb(x, y, z) = {
+                select(abs(sb(x, y, z)[0]) < 1e-5f, 1e-5f, sb(x, y, z)[0]),
+                select(abs(sb(x, y, z)[1]) < 1e-5f, 1e-5f, sb(x, y, z)[1]),
+                select(abs(sb(x, y, z)[2]) < 1e-5f, 1e-5f, sb(x, y, z)[2])
             };
 
             intermediates.push_back(h_x);
