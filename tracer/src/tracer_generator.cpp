@@ -103,6 +103,8 @@ TupleVec<N> trilinear(const GridSDF& sdf, TupleVec<3> position) {
     }
 }
 
+
+
 Expr example_sphere(TupleVec<3> position) {
     return norm(position) - 3.0f;
 }
@@ -116,6 +118,11 @@ Expr example_box(TupleVec<3> position) {
     TupleVec<3> d = abs(position + Tuple(-0.22f, 0.19f, 0.34f)) - b;
 
     return norm(max(d, Expr(0.0f))) + vmax(min(d, Expr(0.0f)));
+}
+
+Expr to_render_dist(Expr dist) {
+    return 1.0f / \
+        (10.0f + (1.0f - Halide::clamp(Halide::abs(dist), 0.0f, 1.0f)) * 90.0f);
 }
 
 class TracerGenerator : public Halide::Generator<TracerGenerator> {
@@ -269,21 +276,22 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //ray_vec.compute_root();
         //origin.compute_root();
 
+        GridSDF sb = call_sobel(sdf);
+
         Func pos("pos");
         Expr d("d");
         Func depth("depth");
 
-        GridSDF sb = call_sobel(sdf);
-
-        // Remember how update definitions work
         pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
         pos(x, y, 0) = original_ray_pos(x, y);
         d = trilinear<1>(sdf, TupleVec<3>(Tuple(pos(x, y, tr))))[0];
+        d = to_render_dist(d);
         pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
                              d * TupleVec<3>(ray_vec(x, y))).get();
         Var xi, xo, yi, yo;
         depth(x, y, t) = 0.0f;
         depth(x, y, tr + 1) = d;
+        //depth.trace_stores();
 
         Func normal_evaluation_position("normal_evaluation_position");
         normal_evaluation_position(x, y, t) = step_back(
