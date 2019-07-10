@@ -113,7 +113,7 @@ Expr vmax(TupleVec<3> v) {
 
 Expr example_box(TupleVec<3> position) {
     TupleVec<3> b = {3.0f, 3.0f, 3.0f};
-    TupleVec<3> d = abs(position) - b;
+    TupleVec<3> d = abs(position + Tuple(-0.22f, 0.19f, 0.34f)) - b;
 
     return norm(max(d, Expr(0.0f))) + vmax(min(d, Expr(0.0f)));
 }
@@ -139,13 +139,13 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func _realize("_realize_" + f.name());
         _realize(t, x, y, c) = cast<uint8_t>(0);
         if (f.outputs() > 1) {
-            _realize(t, x, y, 0) = cast<uint8_t>(f(x, y, t)[0] * 255.0f);
-            _realize(t, x, y, 1) = cast<uint8_t>(f(x, y, t)[1] * 255.0f);
-            _realize(t, x, y, 2) = cast<uint8_t>(f(x, y, t)[2] * 255.0f);
+            _realize(t, x, y, 2) = cast<uint8_t>(clamp(f(x, y, t)[0], 0.0f, 1.0f) * 255.0f);
+            _realize(t, x, y, 1) = cast<uint8_t>(clamp(f(x, y, t)[1], 0.0f, 1.0f) * 255.0f);
+            _realize(t, x, y, 0) = cast<uint8_t>(clamp(f(x, y, t)[2], 0.0f, 1.0f) * 255.0f);
         } else {
-            _realize(t, x, y, 0) = cast<uint8_t>(f(x, y, t) * 255.0f);
-            _realize(t, x, y, 1) = cast<uint8_t>(f(x, y, t) * 255.0f);
-            _realize(t, x, y, 2) = cast<uint8_t>(f(x, y, t) * 255.0f);
+            _realize(t, x, y, 2) = cast<uint8_t>(clamp(f(x, y, t), 0.0f, 1.0f) * 255.0f);
+            _realize(t, x, y, 1) = cast<uint8_t>(clamp(f(x, y, t), 0.0f, 1.0f) * 255.0f);
+            _realize(t, x, y, 0) = cast<uint8_t>(clamp(f(x, y, t), 0.0f, 1.0f) * 255.0f);
         }
 
         debug_(current_debug++, t, x, y, c) = _realize(t, x, y, c);
@@ -186,8 +186,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             trilinear<3>(normals, TupleVec<3>(Tuple(positions(x, y, t))));
         Func diffuse("diffuse");
         diffuse(x, y, t) = (kd * clamp(dot(normal_sample,
-                                            Tuple(light_vec_normalized(x, y, t))),
-                                        0.0f, 1.0f) * light_color).get();
+                                           Tuple(light_vec_normalized(x, y, t))),
+                                       0.0f, 1.0f) * light_color).get();
         //diffuse(x, y, tr) = ((kd * Expr(1.0f)) * light_color).get();
 
         //light_vec.compute_at(diffuse, x);
@@ -199,7 +199,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     Func shade(Func positions, TupleVec<3> origin, GridSDF normals) {
-        TupleVec<3> top_light_color = {0.6f, 0.6f, 0.4f};
+        TupleVec<3> top_light_color = {0.6f, 0.6f, 0.0f};
         TupleVec<3> self_light_color = {0.4f, 0.0f, 0.4f};
 
         TupleVec<3> top_light_pos = {10.0f, 30.0f, 0.0f};
@@ -218,7 +218,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         Func total_light("total_light");
         total_light(x, y, t) = (TupleVec<3>(top_light(x, y, t))
-                                 + TupleVec<3>(self_light(x, y, t))).get();
+                                + TupleVec<3>(self_light(x, y, t))).get();
         //total_light.trace_stores();
 
         //top_light.compute_at(total_light, x);
@@ -235,7 +235,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     TupleVec<3> step_back(TupleVec<3> positions, TupleVec<3> ray_vec,
-                          float EPS = 1e-6f) {
+                          float EPS = 1e-2f) {
         return (-1.0f * Expr(EPS)) * ray_vec + positions;
     }
 
@@ -290,12 +290,19 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                 TupleVec<3>(pos(x, y, t)), TupleVec<3>(ray_vec(x, y))).get();
 
         Func shaded("shaded");
-        shaded(x, y, t) = shade(pos, {origin(0), origin(1), origin(2)},
-                                 sb)(x, y, t);
+        shaded(x, y, t) = shade(normal_evaluation_position, {origin(0), origin(1), origin(2)},
+                                sb)(x, y, t);
+
+        Func normals_now("normals_now");
+        normals_now(x, y, t) = (trilinear<3>(
+                                    sb,
+                                    TupleVec<3>(
+                                        normal_evaluation_position(x, y, t)))).get();
 
         record(pos);
         record(shaded);
         record(depth);
+        record(normals_now);
         //normal_evaluation_position.compute_at(shaded, x);
         //shaded.compute_root();
 
@@ -305,7 +312,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                           depth(x, y, iterations),
                           depth(x, y, iterations)
                           };*/
-        endpoint(x, y) = shaded(x, y, iterations - 1);
+        endpoint(x, y) = shaded(x, y, iterations - 100);
+        //endpoint(x, y) = normals_now(x, y, iterations - 1);
         //shaded.trace_stores();
         //endpoint.compute_root();
         //apply_auto_schedule(endpoint);
@@ -334,13 +342,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //std::cout << Buffer<float>(sobel(grid_sdf).realize(32, 32, 32)[0])(0, 0, 0)
         //          << std::endl;
 
+        // flip image and RGB -> BGR to match OpenCV's output
         out_(x, y, c) = 0.0f;
-        out_(x, y, 0) = clamp(end(x, y)[0], 0.0f, 1.0f);
-        out_(x, y, 1) = clamp(end(x, y)[1], 0.0f, 1.0f);
-        out_(x, y, 2) = clamp(end(x, y)[2], 0.0f, 1.0f);
-        //out_(x, y, 0) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[0], 0.0f, 1.0f);
-        //out_(x, y, 1) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[1], 0.0f, 1.0f);
-        //out_(x, y, 2) = clamp(sobel(grid_sdf)(x / 7, y / 7, 10)[2], 0.0f, 1.0f);
+        out_(x, y, 0) = clamp(end(y, x)[2], 0.0f, 1.0f);
+        out_(x, y, 1) = clamp(end(y, x)[1], 0.0f, 1.0f);
+        out_(x, y, 2) = clamp(end(y, x)[0], 0.0f, 1.0f);
 
         num_debug(x) = Func(Expr(current_debug))();
 

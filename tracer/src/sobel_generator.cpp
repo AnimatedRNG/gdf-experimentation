@@ -30,7 +30,7 @@ namespace {
         std::vector<Func> intermediates;
 
         Func h(Func clamped, unsigned int dim) {
-            Func h_conv{"h_conv"};
+            Func h_conv("h_conv");
             float h_kern[3] = {1.f, 2.f, 1.f};
 
             switch (dim) {
@@ -62,7 +62,7 @@ namespace {
         }
 
         Func h_p(Func clamped, unsigned int dim) {
-            Func h_p_conv{"h_p_conv"};
+            Func h_p_conv("h_p_conv");
             float h_p_kern[2] = {1.f, -1.f};
 
             switch (dim) {
@@ -106,11 +106,11 @@ namespace {
                 h_p_y(x, y, z)* h_z(x, y, z)* h_x(x, y, z),
                 h_p_z(x, y, z)* h_x(x, y, z)* h_y(x, y, z)
             };
-            sb(x, y, z) = {
+            /*sb(x, y, z) = {
                 select(abs(sb(x, y, z)[0]) < 1e-5f, 1e-5f, sb(x, y, z)[0]),
                 select(abs(sb(x, y, z)[1]) < 1e-5f, 1e-5f, sb(x, y, z)[1]),
                 select(abs(sb(x, y, z)[2]) < 1e-5f, 1e-5f, sb(x, y, z)[2])
-            };
+                };*/
 
             intermediates.push_back(h_x);
             intermediates.push_back(h_y);
@@ -124,7 +124,18 @@ namespace {
             intermediates.push_back(sobel_norm);
 
             normals_(x, y, z) = (TupleVec<3>(sb(x, y, z))
-                                 / Expr(sobel_norm(x, y, z))).get();
+                                     / Expr(sobel_norm(x, y, z))).get();
+            //normals_(x, y, z) = {h_x(x, y, z), h_y(x, y, z), h_z(x, y, z)};
+            //normals_(x, y, z) = {abs(h_p_x(x, y, z)), abs(h_p_y(x, y, z)), abs(h_p_z(x, y, z))};
+            //normals_(x, y, z) = {abs(sobel_norm(x, y, z)), abs(sobel_norm(x, y, z)), abs(sobel_norm(x, y, z))};
+            //normals_(x, y, z)[0] = select(normals_(x, y, z)[0] == 0.0f,
+            //    1.0f, 0.0f);
+            //normals_(x, y, z)[1] = select(normals_(x, y, z)[1] == 0.0f,
+            //    1.0f, 0.0f);
+            //normals_(x, y, z)[2] = select(normals_(x, y, z)[2] == 0.0f,
+            //1.0f, 0.0f);
+
+            normals_.trace_stores();
 
             if (auto_schedule) {
                 /*sdf_.estimate(x, 0, 64)
