@@ -61,7 +61,7 @@ int main() {
 
     int width = 300;
     int height = 300;
-    int iterations = 300;
+    int iterations = 400;
 
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);

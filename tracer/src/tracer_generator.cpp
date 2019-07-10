@@ -13,7 +13,7 @@
 
 using namespace Halide;
 
-constexpr static int iterations = 300;
+constexpr static int iterations = 400;
 
 Var x("x"), y("y"), c("c"), t("t");
 Var num_img("num_img");
@@ -122,7 +122,7 @@ Expr example_box(TupleVec<3> position) {
 
 Expr to_render_dist(Expr dist) {
     return 1.0f / \
-        (10.0f + (1.0f - Halide::clamp(Halide::abs(dist), 0.0f, 1.0f)) * 90.0f);
+           (10.0f + (1.0f - Halide::clamp(Halide::abs(dist), 0.0f, 1.0f)) * 90.0f);
 }
 
 class TracerGenerator : public Halide::Generator<TracerGenerator> {
@@ -273,32 +273,55 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         Func pos("pos");
         Expr d("d");
-        Func depth("depth");
+        Expr ds("ds");
+        Func dist("dist");
+        Func dist_render("dist_render");
 
         pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
         pos(x, y, 0) = original_ray_pos(x, y);
         d = trilinear<1>(sdf, TupleVec<3>(Tuple(pos(x, y, tr))))[0];
-        d = to_render_dist(d);
+        ds = to_render_dist(d);
         pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
-                             d * TupleVec<3>(ray_vec(x, y))).get();
+                             ds * TupleVec<3>(ray_vec(x, y))).get();
         Var xi, xo, yi, yo;
-        depth(x, y, t) = 0.0f;
-        depth(x, y, tr + 1) = d;
-        //depth.trace_stores();
+        dist(x, y, t) = 0.0f;
+        dist(x, y, tr + 1) = d;
+
+        dist_render(x, y, t) = 0.0f;
+        dist_render(x, y, tr + 1) = ds;
 
         Func normal_evaluation_position("normal_evaluation_position");
         normal_evaluation_position(x, y, t) = step_back(
                 TupleVec<3>(pos(x, y, t)), TupleVec<3>(ray_vec(x, y))).get();
 
-        Func shaded("shaded");
-        shaded(x, y, t) = shade(normal_evaluation_position, {origin(0), origin(1), origin(2)},
-                                sb)(x, y, t);
+        Func g_d("g_d");
+        g_d(x, y, t) = normal_pdf_rectified(dist(x, y, t));
+
+        Func intensity("intensity");
+        intensity(x, y, t) = shade(normal_evaluation_position, {origin(0), origin(1), origin(2)},
+                                   sb)(x, y, t);
+
+        Func opc("opc");
+        opc(x, y, t) = 0.0f;
+        opc(x, y, tr + 1) = opc(x, y, tr) + g_d(x, y, tr) * dist_render(x, y, tr);
+
+        float u_s = 1.0f;
+        float k = -1.0f;
+
+        Expr scattering("scattering");
+        scattering = g_d(x, y, tr) * u_s;
+
+        Func volumetric_shaded("volumetric_shaded");
+        volumetric_shaded(x, y, t) = {0.0f, 0.0f, 0.0f};
+        volumetric_shaded(x, y, tr + 1) =
+            (TupleVec<3>(volumetric_shaded(x, y, tr)) + (scattering * Halide::exp(k * opc(x, y, tr))) *
+             TupleVec<3>(intensity(x, y, tr)) * Expr(dist_render(x, y, tr))).get();
 
         Func normals_debug("normals_debug");
         normals_debug(x, y, t) = (trilinear<3>(
-                                    sb,
-                                    TupleVec<3>(
-                                        normal_evaluation_position(x, y, t)))).get();
+                                      sb,
+                                      TupleVec<3>(
+                                          normal_evaluation_position(x, y, t)))).get();
 
         Func endpoint("endpoint");
         //endpoint(x, y) = pos(x, y, iterations - 1);
@@ -306,13 +329,17 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                           depth(x, y, iterations),
                           depth(x, y, iterations)
                           };*/
-        endpoint(x, y) = shaded(x, y, iterations - 1);
+        //endpoint(x, y) = intensity(x, y, iterations - 1);
         //endpoint(x, y) = normals_now(x, y, iterations - 1);
+        endpoint(x, y) = volumetric_shaded(x, y, iterations - 1);
 
         record(pos);
-        record(shaded);
-        record(depth);
+        record(intensity);
+        record(dist);
         record(normals_debug);
+        record(g_d);
+        record(opc);
+        record(volumetric_shaded);
 
         return endpoint;
     }
