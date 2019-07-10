@@ -14,7 +14,7 @@ void write_gifs(
     Buffer<uint8_t> buf,
     int iterations,
     int num_gifs = 1,
-    float delay = 0.01f) {
+    float delay = 0.0001f) {
 
     int width = buf.dim(2).max() + 1;
     int height = buf.dim(3).max() + 1;
