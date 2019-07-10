@@ -256,25 +256,18 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return GridSDF(sb, sdf.p0, sdf.p1, sdf.nx, sdf.ny, sdf.nz);
     }
 
-    Func sphere_trace(const GridSDF& sdf,
+    Func forward_pass(const GridSDF& sdf,
                       float EPS = 1e-6f) {
         Func original_ray_pos("original_ray_pos");
         Func ray_vec("ray_vec");
         Func origin("origin");
 
-        /*std::forward_as_tuple(std::tie(original_ray_pos,
-                                       ray_vec), origin) =
-                                           projection(projection_, view_);*/
         auto outputs = projection::generate(Halide::GeneratorContext(this->get_target(),
                                             auto_schedule),
         {projection_, view_, width, height});
         original_ray_pos = outputs.ray_pos;
         ray_vec = outputs.ray_vec;
         origin = outputs.origin;
-
-        //original_ray_pos.compute_root();
-        //ray_vec.compute_root();
-        //origin.compute_root();
 
         GridSDF sb = call_sobel(sdf);
 
@@ -301,19 +294,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         shaded(x, y, t) = shade(normal_evaluation_position, {origin(0), origin(1), origin(2)},
                                 sb)(x, y, t);
 
-        Func normals_now("normals_now");
-        normals_now(x, y, t) = (trilinear<3>(
+        Func normals_debug("normals_debug");
+        normals_debug(x, y, t) = (trilinear<3>(
                                     sb,
                                     TupleVec<3>(
                                         normal_evaluation_position(x, y, t)))).get();
-
-        record(pos);
-        record(shaded);
-        record(depth);
-        record(normals_now);
-
-        //normal_evaluation_position.compute_at(shaded, x);
-        //shaded.compute_root();
 
         Func endpoint("endpoint");
         //endpoint(x, y) = pos(x, y, iterations - 1);
@@ -323,16 +308,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                           };*/
         endpoint(x, y) = shaded(x, y, iterations - 1);
         //endpoint(x, y) = normals_now(x, y, iterations - 1);
-        //shaded.trace_stores();
-        //endpoint.compute_root();
-        //apply_auto_schedule(endpoint);
 
-        //pos.unroll(t);
-
-        //pos.compute_at(endpoint, x);
-        //pos.store_at(endpoint, x);
-        //apply_auto_schedule(shaded);
-        //apply_auto_schedule(pos);
+        record(pos);
+        record(shaded);
+        record(depth);
+        record(normals_debug);
 
         return endpoint;
     }
@@ -346,7 +326,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         {4.0f, 4.0f, 4.0f}, 128, 128, 128);
 
         Func end("end");
-        end(x, y) = sphere_trace(grid_sdf)(x, y);
+        end(x, y) = forward_pass(grid_sdf)(x, y);
 
         //std::cout << Buffer<float>(sobel(grid_sdf).realize(32, 32, 32)[0])(0, 0, 0)
         //          << std::endl;
