@@ -303,6 +303,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         record(shaded);
         record(depth);
         record(normals_now);
+
         //normal_evaluation_position.compute_at(shaded, x);
         //shaded.compute_root();
 
@@ -312,7 +313,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                           depth(x, y, iterations),
                           depth(x, y, iterations)
                           };*/
-        endpoint(x, y) = shaded(x, y, iterations - 100);
+        endpoint(x, y) = shaded(x, y, iterations - 1);
         //endpoint(x, y) = normals_now(x, y, iterations - 1);
         //shaded.trace_stores();
         //endpoint.compute_root();
@@ -334,7 +335,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         GridSDF grid_sdf = to_grid_sdf(example_box,
         {-4.0f, -4.0f, -4.0f},
-        {4.0f, 4.0f, 4.0f}, 32, 32, 32);
+        {4.0f, 4.0f, 4.0f}, 128, 128, 128);
 
         Func end("end");
         end(x, y) = sphere_trace(grid_sdf)(x, y);

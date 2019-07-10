@@ -1,4 +1,5 @@
 #include <iostream>
+#include <chrono>
 
 #include "HalideBuffer.h"
 #include "halide_image_io.h"
@@ -12,12 +13,11 @@ using namespace Halide::Tools;
 void write_gifs(
     Buffer<uint8_t> buf,
     int iterations,
-    int num_gifs=1,
-    float delay=0.01f) {
+    int num_gifs = 1,
+    float delay = 0.01f) {
 
     int width = buf.dim(2).max() + 1;
     int height = buf.dim(3).max() + 1;
-    std::cout << "width " << width << std::endl;
     int stride = width * height * 4;
     int gif_stride = stride * iterations;
     GifWriter g;
@@ -69,7 +69,16 @@ int main() {
     Buffer<uint8_t> debug(10, iterations, width, height, 4);
     Buffer<int32_t> num_debug(1);
 
+    auto start = std::chrono::steady_clock::now();
     tracer_render(projection, view, width, height, output, debug, num_debug);
+    auto end = std::chrono::steady_clock::now();
+    auto diff = end - start;
+
+    std::cout
+            << "tracing took "
+            << std::chrono::duration <float, std::milli> (diff).count()
+            << " ms"
+            << std::endl;
 
     write_gifs(debug, iterations, num_debug(0));
 
