@@ -5,6 +5,7 @@
 #include "gif.h"
 
 #include "matmul.hpp"
+#include "recorder.hpp"
 #include "grid_sdf.hpp"
 #include "sobel.stub.h"
 #include "projection.stub.h"
@@ -132,30 +133,15 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Input<Buffer<float>> view_{"view", 2};
     Input<int32_t> width{"width"};
     Input<int32_t> height{"height"};
+    Input<int32_t> initial_debug{"initial_debug"};
     Output<Buffer<float>> out_{"out", 3};
     Output<Buffer<uint8_t>> debug_{"debug", 5};
     Output<Buffer<int32_t>> num_debug{"num_debug"};
 
     int current_debug = 0;
 
-    inline void record(Func f,
-                       int32_t iterations = 300,
-                       float delay = 0.03f) {
-        Var x("x"), y("y"), c("c"), t("t");
-
-        Func _realize("_realize_" + f.name());
-        _realize(t, x, y, c) = cast<uint8_t>(0);
-        if (f.outputs() > 1) {
-            _realize(t, x, y, 2) = cast<uint8_t>(clamp(f(x, y, t)[0], 0.0f, 1.0f) * 255.0f);
-            _realize(t, x, y, 1) = cast<uint8_t>(clamp(f(x, y, t)[1], 0.0f, 1.0f) * 255.0f);
-            _realize(t, x, y, 0) = cast<uint8_t>(clamp(f(x, y, t)[2], 0.0f, 1.0f) * 255.0f);
-        } else {
-            _realize(t, x, y, 2) = cast<uint8_t>(clamp(f(x, y, t), 0.0f, 1.0f) * 255.0f);
-            _realize(t, x, y, 1) = cast<uint8_t>(clamp(f(x, y, t), 0.0f, 1.0f) * 255.0f);
-            _realize(t, x, y, 0) = cast<uint8_t>(clamp(f(x, y, t), 0.0f, 1.0f) * 255.0f);
-        }
-
-        debug_(current_debug++, t, x, y, c) = _realize(t, x, y, c);
+    inline void record(Func f) {
+        _record(f, debug_, num_debug, initial_debug, current_debug);
     }
 
     Expr normal_pdf(Expr x, float sigma = 1e-7f, float mean = 0.0f) {
@@ -314,7 +300,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func volumetric_shaded("volumetric_shaded");
         volumetric_shaded(x, y, t) = {0.0f, 0.0f, 0.0f};
         volumetric_shaded(x, y, tr + 1) =
-            (TupleVec<3>(volumetric_shaded(x, y, tr)) + (scattering * Halide::exp(k * opc(x, y, tr))) *
+            (TupleVec<3>(volumetric_shaded(x, y, tr)) + (scattering * Halide::exp(k * opc(x,
+                    y, tr))) *
              TupleVec<3>(intensity(x, y, tr)) * Expr(dist_render(x, y, tr))).get();
 
         Func normals_debug("normals_debug");

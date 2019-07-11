@@ -70,7 +70,7 @@ int main() {
     Buffer<int32_t> num_debug(1);
 
     auto start = std::chrono::steady_clock::now();
-    tracer_render(projection, view, width, height, output, debug, num_debug);
+    tracer_render(projection, view, width, height, 0, output, debug, num_debug);
     auto end = std::chrono::steady_clock::now();
     auto diff = end - start;
 
