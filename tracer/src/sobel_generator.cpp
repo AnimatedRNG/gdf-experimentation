@@ -101,15 +101,16 @@ namespace {
             h_p_y = h_p(clamped, 1);
             h_p_z = h_p(clamped, 2);
 
-            sb(x, y, z) = {
+            sb(x, y, z, i) = {0.0f, 0.0f, 0.0f};
+            sb(x, y, z, 0) = {
                 h_p_x(x, y, z)* h_y(x, y, z)* h_z(x, y, z),
                 h_p_y(x, y, z)* h_z(x, y, z)* h_x(x, y, z),
                 h_p_z(x, y, z)* h_x(x, y, z)* h_y(x, y, z)
             };
-            sb(x, y, z) = {
-                select(abs(sb(x, y, z)[0]) < 1e-6f, 1e-6f, sb(x, y, z)[0]),
-                select(abs(sb(x, y, z)[1]) < 1e-6f, 1e-6f, sb(x, y, z)[1]),
-                select(abs(sb(x, y, z)[2]) < 1e-6f, 1e-6f, sb(x, y, z)[2])
+            sb(x, y, z, 1) = {
+                select(abs(sb(x, y, z, 1)[0]) < 1e-6f, 1e-6f, sb(x, y, z, 0)[0]),
+                select(abs(sb(x, y, z, 1)[1]) < 1e-6f, 1e-6f, sb(x, y, z, 0)[1]),
+                select(abs(sb(x, y, z, 1)[2]) < 1e-6f, 1e-6f, sb(x, y, z, 0)[2])
             };
 
             intermediates.push_back(h_x);
@@ -120,11 +121,11 @@ namespace {
             intermediates.push_back(h_p_y);
             intermediates.push_back(h_p_z);
 
-            sobel_norm(x, y, z) = norm(sb(x, y, z)) * -1.0f;
+            sobel_norm(x, y, z) = norm(sb(x, y, z, 1)) * -1.0f;
             intermediates.push_back(sobel_norm);
 
-            normals_(x, y, z) = (TupleVec<3>(sb(x, y, z))
-                                     / Expr(sobel_norm(x, y, z))).get();
+            normals_(x, y, z) = (TupleVec<3>(sb(x, y, z, 1))
+                                 / Expr(sobel_norm(x, y, z))).get();
 
             if (auto_schedule) {
                 /*sdf_.estimate(x, 0, 64)
@@ -153,7 +154,7 @@ namespace {
         }
 
       private:
-        Var x, y, z;
+        Var x, y, z, i;
     };
 
 } // namespace

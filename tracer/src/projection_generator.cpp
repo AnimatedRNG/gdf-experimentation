@@ -75,12 +75,13 @@ namespace {
                                         projected(x, y, norm_k) *
                                         projected(x, y, norm_k)));*/
             Func ray_vec_norm("ray_vec_norm");
-            ray_vec_norm(x, y) += projected(x, y, norm_k) * projected(x, y, norm_k);
-            ray_vec_norm(x, y) = Halide::sqrt(ray_vec_norm(x, y));
+            ray_vec_norm(x, y, i) = 0.0f;
+            ray_vec_norm(x, y, 0) += projected(x, y, norm_k) * projected(x, y, norm_k);
+            ray_vec_norm(x, y, 1) = Halide::sqrt(ray_vec_norm(x, y, 0));
 
-            ray_vec(x, y) = Tuple(projected(x, y, 0) / ray_vec_norm(x, y),
-                                  projected(x, y, 1) / ray_vec_norm(x, y),
-                                  projected(x, y, 2) / ray_vec_norm(x, y));
+            ray_vec(x, y) = Tuple(projected(x, y, 0) / ray_vec_norm(x, y, 1),
+                                  projected(x, y, 1) / ray_vec_norm(x, y, 1),
+                                  projected(x, y, 2) / ray_vec_norm(x, y, 1));
 
             //ray_pos(x, y, c) = origin(c) + ray_vec(x, y, c) * near;
             ray_pos(x, y) = Tuple(origin(0) + ray_vec(x, y)[0] * near,
@@ -110,7 +111,7 @@ namespace {
         }
 
       private:
-        Var x{"x"}, y{"y"}, c{"c"};
+        Var x{"x"}, y{"y"}, c{"c"}, i{"i"};
         RDom k{0, 4};
         RDom norm_k{0, 3};
     };
