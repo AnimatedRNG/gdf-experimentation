@@ -108,9 +108,9 @@ namespace {
                 h_p_z(x, y, z)* h_x(x, y, z)* h_y(x, y, z)
             };
             sb(x, y, z, 1) = {
-                select(abs(sb(x, y, z, 1)[0]) < 1e-6f, 1e-6f, sb(x, y, z, 0)[0]),
-                select(abs(sb(x, y, z, 1)[1]) < 1e-6f, 1e-6f, sb(x, y, z, 0)[1]),
-                select(abs(sb(x, y, z, 1)[2]) < 1e-6f, 1e-6f, sb(x, y, z, 0)[2])
+                select(abs(sb(x, y, z, 0)[0]) < 1e-6f, 1e-6f, sb(x, y, z, 0)[0]),
+                select(abs(sb(x, y, z, 0)[1]) < 1e-6f, 1e-6f, sb(x, y, z, 0)[1]),
+                select(abs(sb(x, y, z, 0)[2]) < 1e-6f, 1e-6f, sb(x, y, z, 0)[2])
             };
 
             intermediates.push_back(h_x);
