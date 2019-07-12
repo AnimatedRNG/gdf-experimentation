@@ -78,6 +78,9 @@ namespace {
             ray_vec_norm(x, y, i) = 0.0f;
             ray_vec_norm(x, y, 0) += projected(x, y, norm_k) * projected(x, y, norm_k);
             ray_vec_norm(x, y, 1) = Halide::sqrt(ray_vec_norm(x, y, 0));
+            //ray_vec_norm(x, y) = 0.0f;
+            //ray_vec_norm(x, y) += projected(x, y, norm_k) * projected(x, y, norm_k);
+            //ray_vec_norm(x, y) = Halide::sqrt(ray_vec_norm(x, y));
 
             ray_vec(x, y) = Tuple(projected(x, y, 0) / ray_vec_norm(x, y, 1),
                                   projected(x, y, 1) / ray_vec_norm(x, y, 1),
