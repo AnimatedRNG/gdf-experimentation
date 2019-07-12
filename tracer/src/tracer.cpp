@@ -6,6 +6,8 @@
 #include "gif.h"
 
 #include "tracer_render.h"
+#include "derivative_render.h"
+#include "sdf_gen.h"
 
 using namespace Halide::Runtime;
 using namespace Halide::Tools;
@@ -27,7 +29,7 @@ void write_gifs(
         std::string filename = std::to_string(gif) + ".gif";
         GifBegin(&g, filename.c_str(), width, height, delay);
         for (int i = 0; i < iterations; i++) {
-            std::cout << "Writing frame " << i + 1 << " of " << filename << std::endl;
+            //std::cout << "Writing frame " << i + 1 << " of " << filename << std::endl;
             for (int x = 0; x < width; x++) {
                 for (int y = 0; y < height; y++) {
                     for (int c = 0; c < 4; c++) {
@@ -39,6 +41,7 @@ void write_gifs(
                           buffer,
                           width, height, delay);
         }
+        std::cout << "Finished writing 300 frames of " << filename << std::endl;
         GifEnd(&g);
     }
     free(buffer);
@@ -65,14 +68,36 @@ int main() {
 
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);
+    Buffer<float> sdf(128, 128, 128);
+    Buffer<float> p0(3);
+    Buffer<float> p1(3);
     Buffer<float> output(width, height, 3);
     Buffer<uint8_t> debug(10, iterations, width, height, 4);
     Buffer<int32_t> num_debug(1);
 
     auto start = std::chrono::steady_clock::now();
-    tracer_render(projection, view, width, height, 0, output, debug, num_debug);
+    sdf_gen(128, 128, 128, sdf, p0, p1);
+
     auto end = std::chrono::steady_clock::now();
     auto diff = end - start;
+    std::cout << "Generated 128x128x128 SDF in "
+              << std::chrono::duration <float, std::milli> (diff).count()
+              << " ms"
+              << std::endl;
+
+    start = std::chrono::steady_clock::now();
+    tracer_render(projection, view,
+                  sdf, p0, p1,
+                  width, height,
+                  0,
+                  output, debug, num_debug);
+    /*derivative_render(projection, view,
+                      sdf, p0, p1,
+                      width, height,
+                      0,
+                      output, debug, num_debug);*/
+    end = std::chrono::steady_clock::now();
+    diff = end - start;
 
     std::cout
             << "tracing took "
@@ -83,6 +108,4 @@ int main() {
     write_gifs(debug, iterations, num_debug(0));
 
     convert_and_save_image(output, "test.png");
-
-    //plt::show();
 }

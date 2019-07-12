@@ -23,19 +23,16 @@ inline void apply_auto_schedule(Func F) {
 class GridSDF {
   public:
 
-    GridSDF(Halide::Func _buffer, TupleVec<3> _p0, TupleVec<3> _p1, int n0, int n1,
-            int n2) :
+    GridSDF(Halide::Func _buffer, TupleVec<3> _p0, TupleVec<3> _p1, TupleVec<3> _n) :
         buffer(_buffer),
         p0(_p0),
         p1(_p1),
-        n({n0, n1, n2}), nx(n0), ny(n1), nz(n2) { }
+        n(_n) { }
 
     Halide::Func buffer;
     TupleVec<3> p0;
     TupleVec<3> p1;
     TupleVec<3> n;
-
-    int nx, ny, nz;
 };
 
 // For debugging analytical functions
@@ -52,5 +49,5 @@ inline GridSDF to_grid_sdf(std::function<Expr(TupleVec<3>)> sdf,
     }));
     Halide::Buffer<float> buffer = field_func.realize(nx, ny, nz);
 
-    return GridSDF(Func(buffer), p0, p1, nx, ny, nz);
+    return GridSDF(Func(buffer), p0, p1, TupleVec<3>({nx, ny, nz}));
 }
