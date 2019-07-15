@@ -91,16 +91,17 @@ int main() {
               << std::endl;
 
     start = std::chrono::steady_clock::now();
-    /*tracer_render(projection, view,
-                  sdf, p0, p1, n,
+    tracer_render(projection, view,
+                  sdf, p0, p1,
+                  true,
                   width, height,
                   0,
-                  output, debug, num_debug);*/
-    derivative_render(projection, view,
+                  output, debug, num_debug);
+    /*derivative_render(projection, view,
                       sdf, p0, p1,
                       width, height,
                       0,
-                      output, debug, num_debug);
+                      output, debug, num_debug);*/
     end = std::chrono::steady_clock::now();
     diff = end - start;
 

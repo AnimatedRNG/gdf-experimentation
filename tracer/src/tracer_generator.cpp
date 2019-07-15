@@ -132,12 +132,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Input<Buffer<float>> projection_{"projection", 2};
     Input<Buffer<float>> view_{"view", 2};
 
-    Input<Func> sdf_{"sdf_", Float(32), 3};
+    Input<Buffer<float>> sdf_{"sdf_", 3};
     Input<Buffer<float>> p0_{"p0", 1};
     Input<Buffer<float>> p1_{"p1", 1};
-    Input<int32_t> nx{"nx"};
-    Input<int32_t> ny{"ny"};
-    Input<int32_t> nz{"nz"};
+
+    Input<bool> backwards_{"backwards"};
 
     Input<int32_t> width{"width"};
     Input<int32_t> height{"height"};
@@ -243,26 +242,21 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     GridSDF create_grid_sdf() {
         return GridSDF(Func(sdf_),
                        TupleVec<3>({p0_(0), p0_(1), p0_(2)}),
-        TupleVec<3>({p1_(0), p1_(1), p1_(2)}), TupleVec<3>({
-            nx,
-            ny,
-            nz
-        }));
+                       TupleVec<3>({p1_(0), p1_(1), p1_(2)}), TupleVec<3>(Tuple(
+                                   sdf_.dim(0).extent(),
+                                   sdf_.dim(1).extent(),
+                                   sdf_.dim(2).extent()
+                               )));
     }
 
     GridSDF call_sobel(GridSDF sdf) {
         Func sb = sobel::generate(Halide::GeneratorContext(this->get_target(),
                                   auto_schedule),
         {sdf.buffer, sdf.n[0], sdf.n[1], sdf.n[2]});
-        Func sb_clamped("sb_clamped");
-        sb_clamped(x, y, c) = BoundaryConditions::repeat_edge(sb, {{0, nx},
-            {0, ny},
-            {0, nz}
-        })(x, y, c);
         //sb.compute_root();
         //sb.trace_loads();
 
-        return GridSDF(sb_clamped, sdf.p0, sdf.p1, sdf.n);
+        return GridSDF(sb, sdf.p0, sdf.p1, sdf.n);
     }
 
     Func forward_pass(const GridSDF& sdf,
@@ -334,15 +328,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                       TupleVec<3>(
                                           normal_evaluation_position(x, y, t)))).get();
 
-        Func endpoint("endpoint");
-        //endpoint(x, y) = pos(x, y, iterations - 1);
-        /*endpoint(x, y) = {depth(x, y, iterations),
-                          depth(x, y, iterations),
-                          depth(x, y, iterations)
-                          };*/
-        //endpoint(x, y) = intensity(x, y, iterations - 1);
-        //endpoint(x, y) = normals_now(x, y, iterations - 1);
-        endpoint(x, y) = volumetric_shaded(x, y, iterations - 1);
+        Func forward("forward");
+        forward(x, y) = volumetric_shaded(x, y, iterations - 1);
 
         record(pos);
         record(intensity);
@@ -352,7 +339,31 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         record(opc);
         record(volumetric_shaded);
 
-        return endpoint;
+        return forward;
+    }
+
+    Func backwards_pass(GridSDF sdf, Func forward, float EPS = 1e-6f) {
+        Func loss_xyc("loss_xyc");
+        Func loss_xy("loss_xy");
+        Func loss_y("loss_y");
+        Func loss("loss");
+        RDom rx(0, width);
+        RDom ry(0, height);
+        loss_xyc(x, y) = (1.0f - TupleVec<3>(forward(x, y))).get();
+        loss_xy(x, y) = norm(loss_xyc(x, y));
+        loss_y(y) = 0.0f;
+        loss_y(y) += loss_xy(rx, y);
+        loss() = 0.0f;
+        loss() += loss_y(ry);
+
+        auto dr = propagate_adjoints(loss);
+        Func dSDF_dLoss = dr(sdf_);
+        Func backwards("backwards");
+        backwards(x, y) = {dSDF_dLoss(x, y, 0), 0.0f, 0.0f};
+
+        return backwards;
+        //return Func(Tuple(loss_xy, loss_xy, loss_xy));
+        //return loss_xyc;
     }
 
     void generate() {
@@ -365,7 +376,13 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         GridSDF grid_sdf = create_grid_sdf();
 
         Func end("end");
-        end(x, y) = forward_pass(grid_sdf)(x, y);
+        /*end(x, y) =
+            select(backwards_, backwards_pass(grid_sdf, forward_pass(grid_sdf))(x, y),
+            forward_pass(grid_sdf)(x, y))*/
+        Func fw_pass = forward_pass(grid_sdf);
+
+        //end(x, y) = forward_pass(grid_sdf)(x, y);
+        end(x, y) = backwards_pass(grid_sdf, fw_pass)(x, y);
 
         // flip image and RGB -> BGR to match OpenCV's output
         out_(x, y, c) = 0.0f;
@@ -376,6 +393,10 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         num_debug(x) = Func(Expr(current_debug) + initial_debug)();
 
         if (auto_schedule) {
+            sdf_.dim(0).set_bounds_estimate(0, 32)
+            .dim(1).set_bounds_estimate(0, 32)
+            .dim(2).set_bounds_estimate(0, 32);
+
             projection_.dim(0).set_bounds_estimate(0, 4)
             .dim(1).set_bounds_estimate(0, 4);
             view_.dim(0).set_bounds_estimate(0, 4)

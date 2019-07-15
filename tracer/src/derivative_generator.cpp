@@ -20,8 +20,8 @@ namespace {
         Input<int32_t> width{"width"};
         Input<int32_t> height{"height"};
         Input<int32_t> initial_debug{"initial_debug"};
-        Output<Buffer<float>> out_{"out", 3};
-        Output<Func> debug_{"debug", UInt(8), 5};
+        //Output<Buffer<float>> out_{"out", 3};
+        //Output<Func> debug_{"debug", UInt(8), 5};
         Output<Func> num_debug{"num_debug", Int(32), 1};
 
         Func forward_pass{"forward_pass"};
@@ -29,10 +29,12 @@ namespace {
         int current_debug = 0;
 
         void record(Func f) {
-            _record(f, debug_, num_debug, initial_debug, current_debug);
+            //_record(f, debug_, num_debug, initial_debug, current_debug);
         }
 
         void generate() {
+            num_debug(x) = cast<int32_t>(0);
+            num_debug.estimate(x, 0, 1);
             Func p0("p0");
 
             Func n("n");
@@ -50,7 +52,7 @@ namespace {
             .estimate(y, 0, 128)
             .estimate(c, 0, 128);
 
-            auto outputs = tracer_render::generate(Halide::GeneratorContext(
+            /*auto outputs = tracer_render::generate(Halide::GeneratorContext(
             this->get_target(), auto_schedule), {
                 projection_,
                 view_,
@@ -68,7 +70,7 @@ namespace {
             });
 
             forward_pass = Func(outputs.out);
-            out_(x, y, c) = forward_pass(x, y, c);
+            out_(x, y, c) = forward_pass(x, y, c);*/
 
             /*Func loss_y("loss_y");
             Func loss("loss");
@@ -87,7 +89,7 @@ namespace {
             test(x, y, c) = dSDF_dLoss(x, y, 0);
             record(test);*/
 
-            debug_ = outputs.debug;
+            /*debug_ = outputs.debug;
 
             num_debug(x) = Func(Expr(current_debug) + outputs.num_debug(
                                     0) + initial_debug)();
@@ -113,7 +115,7 @@ namespace {
                 .estimate(y, 0, 1080)
                 .estimate(c, 0, 3);
                 num_debug.estimate(x, 0, 1);
-            }
+                }*/
         }
 
       private:
