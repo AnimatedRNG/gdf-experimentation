@@ -335,7 +335,7 @@ inline TupleVec<N> operator-(Expr const& lhs, TupleVec<N> const& rhs) {
     std::vector<Expr> output(N);
 
     for (unsigned int i = 0; i < N; i++) {
-        output[i] = rhs.get()[i] - lhs;
+        output[i] = lhs - rhs.get()[i];
     }
 
     return TupleVec<N>(Tuple(output));
