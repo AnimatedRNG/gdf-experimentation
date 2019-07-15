@@ -35,13 +35,33 @@ namespace {
         void generate() {
             Func p0("p0");
 
+            Func n("n");
+            n(x) = cast<int32_t>(0);
+            n(0) = sdf_.dim(0).extent();
+            n(1) = sdf_.dim(1).extent();
+            n(2) = sdf_.dim(2).extent();
+            n.estimate(x, 0, 3);
+
+            Func sdf_unclamped("sdf_unclamped");
+            sdf_unclamped(x, y, c) = sdf_(x, y, c);
+            Func sdf("sdf");
+            sdf(x, y, c) = BoundaryConditions::repeat_edge(sdf_)(x, y, c);
+            sdf.estimate(x, 0, 128)
+            .estimate(y, 0, 128)
+            .estimate(c, 0, 128);
+
             auto outputs = tracer_render::generate(Halide::GeneratorContext(
             this->get_target(), auto_schedule), {
                 projection_,
                 view_,
-                sdf_,
+
+                sdf,
                 p0_,
                 p1_,
+                sdf_.dim(0).extent(),
+                sdf_.dim(1).extent(),
+                sdf_.dim(2).extent(),
+
                 width,
                 height,
                 initial_debug
@@ -50,12 +70,33 @@ namespace {
             forward_pass = Func(outputs.out);
             out_(x, y, c) = forward_pass(x, y, c);
 
+            /*Func loss_y("loss_y");
+            Func loss("loss");
+            RDom rx(0, width);
+            RDom ry(0, height);
+            loss_y(y) = 0.0f;
+            loss_y(y) += norm(1.0f - TupleVec<3>(Tuple(forward_pass(rx, y, 0),
+                                                 forward_pass(rx, y, 1),
+                                                 forward_pass(rx, y, 2))));
+            loss() = 0.0f;
+            loss() += loss_y(ry);
+
+            auto dr = propagate_adjoints(loss);
+            Func dSDF_dLoss = dr(sdf_);
+            Func test("test");
+            test(x, y, c) = dSDF_dLoss(x, y, 0);
+            record(test);*/
+
             debug_ = outputs.debug;
 
             num_debug(x) = Func(Expr(current_debug) + outputs.num_debug(
                                     0) + initial_debug)();
 
             if (auto_schedule) {
+                sdf_.dim(0).set_bounds_estimate(0, 128)
+                .dim(1).set_bounds_estimate(0, 128)
+                .dim(2).set_bounds_estimate(0, 128);
+
                 projection_.dim(0).set_bounds_estimate(0, 4)
                 .dim(1).set_bounds_estimate(0, 4);
                 view_.dim(0).set_bounds_estimate(0, 4)

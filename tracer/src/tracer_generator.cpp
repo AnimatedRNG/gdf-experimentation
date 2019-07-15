@@ -132,9 +132,12 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Input<Buffer<float>> projection_{"projection", 2};
     Input<Buffer<float>> view_{"view", 2};
 
-    Input<Buffer<float>> sdf_{"sdf_", 3};
+    Input<Func> sdf_{"sdf_", Float(32), 3};
     Input<Buffer<float>> p0_{"p0", 1};
     Input<Buffer<float>> p1_{"p1", 1};
+    Input<int32_t> nx{"nx"};
+    Input<int32_t> ny{"ny"};
+    Input<int32_t> nz{"nz"};
 
     Input<int32_t> width{"width"};
     Input<int32_t> height{"height"};
@@ -241,9 +244,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return GridSDF(Func(sdf_),
                        TupleVec<3>({p0_(0), p0_(1), p0_(2)}),
         TupleVec<3>({p1_(0), p1_(1), p1_(2)}), TupleVec<3>({
-            sdf_.dim(0).extent(),
-            sdf_.dim(1).extent(),
-            sdf_.dim(2).extent()
+            nx,
+            ny,
+            nz
         }));
     }
 
@@ -251,10 +254,15 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func sb = sobel::generate(Halide::GeneratorContext(this->get_target(),
                                   auto_schedule),
         {sdf.buffer, sdf.n[0], sdf.n[1], sdf.n[2]});
+        Func sb_clamped("sb_clamped");
+        sb_clamped(x, y, c) = BoundaryConditions::repeat_edge(sb, {{0, nx},
+            {0, ny},
+            {0, nz}
+        })(x, y, c);
         //sb.compute_root();
         //sb.trace_loads();
 
-        return GridSDF(sb, sdf.p0, sdf.p1, sdf.n);
+        return GridSDF(sb_clamped, sdf.p0, sdf.p1, sdf.n);
     }
 
     Func forward_pass(const GridSDF& sdf,
@@ -336,21 +344,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //endpoint(x, y) = normals_now(x, y, iterations - 1);
         endpoint(x, y) = volumetric_shaded(x, y, iterations - 1);
 
-        /*Func loss_y("loss_y");
-        Func loss("loss");
-        RDom rx(0, width);
-        RDom ry(0, height);
-        loss_y(y) = 0.0f;
-        loss_y(y) += norm(1.0f - TupleVec<3>(endpoint(rx, y)));
-        loss() = 0.0f;
-        loss() += loss_y(ry);
-
-        auto dr = propagate_adjoints(loss);
-        Func dSDF_dLoss = dr(sdf.buffer);
-        Func test("test");
-        test(x, y, c) = dSDF_dLoss(x, y, 0);
-        record(test);*/
-
         record(pos);
         record(intensity);
         record(dist);
@@ -388,16 +381,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             view_.dim(0).set_bounds_estimate(0, 4)
             .dim(1).set_bounds_estimate(0, 4);
 
-            sdf_.dim(0).set_bounds_estimate(0, 128)
-            .dim(1).set_bounds_estimate(0, 128)
-            .dim(2).set_bounds_estimate(0, 128);
             p0_.dim(0).set_bounds_estimate(0, 3);
             p1_.dim(0).set_bounds_estimate(0, 3);
-            //p1_.estimate(x, 0, 3);
 
-            /*out_.dim(0).set_bounds_estimate(0, 1920)
-            .dim(1).set_bounds_estimate(0, 1920)
-            .dim(2).set_bounds_estimate(0, 3);*/
             out_.estimate(x, 0, 1920)
             .estimate(y, 0, 1080)
             .estimate(c, 0, 3);

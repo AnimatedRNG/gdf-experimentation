@@ -62,21 +62,26 @@ int main() {
         {-0.3166, 1.1503, 8.8977, 1.0}
     };
 
+    const int32_t n_matrix[3] = {
+                               128, 128, 128
+    };
+
     int width = 300;
     int height = 300;
     int iterations = 400;
 
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);
-    Buffer<float> sdf(128, 128, 128);
+    Buffer<float> sdf(n_matrix[0], n_matrix[1], n_matrix[2]);
     Buffer<float> p0(3);
     Buffer<float> p1(3);
+    Buffer<int32_t> n(n_matrix);
     Buffer<float> output(width, height, 3);
     Buffer<uint8_t> debug(10, iterations, width, height, 4);
     Buffer<int32_t> num_debug(1);
 
     auto start = std::chrono::steady_clock::now();
-    sdf_gen(128, 128, 128, sdf, p0, p1);
+    sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], sdf, p0, p1);
 
     auto end = std::chrono::steady_clock::now();
     auto diff = end - start;
@@ -86,16 +91,16 @@ int main() {
               << std::endl;
 
     start = std::chrono::steady_clock::now();
-    tracer_render(projection, view,
-                  sdf, p0, p1,
+    /*tracer_render(projection, view,
+                  sdf, p0, p1, n,
                   width, height,
                   0,
-                  output, debug, num_debug);
-    /*derivative_render(projection, view,
+                  output, debug, num_debug);*/
+    derivative_render(projection, view,
                       sdf, p0, p1,
                       width, height,
                       0,
-                      output, debug, num_debug);*/
+                      output, debug, num_debug);
     end = std::chrono::steady_clock::now();
     diff = end - start;
 
