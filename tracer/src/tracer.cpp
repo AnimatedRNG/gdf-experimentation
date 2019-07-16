@@ -3,6 +3,9 @@
 
 #include "HalideBuffer.h"
 #include "halide_image_io.h"
+#include "HalideRuntime.h"
+#include "HalideRuntimeCuda.h"
+
 #include "gif.h"
 
 #include "tracer_render.h"
@@ -62,7 +65,7 @@ int main() {
     };
 
     const int32_t n_matrix[3] = {
-                               128, 128, 128
+        128, 128, 128
     };
 
     int width = 300;
@@ -79,10 +82,23 @@ int main() {
     Buffer<uint8_t> debug(10, iterations, width, height, 4);
     Buffer<int32_t> num_debug(1);
 
+    projection.set_host_dirty();
+    projection.copy_to_device(halide_cuda_device_interface());
+
+    view.set_host_dirty();
+    view.copy_to_device(halide_cuda_device_interface());
+
+    sdf.set_host_dirty();
+    sdf.copy_to_device(halide_cuda_device_interface());
+
+    p0.set_host_dirty();
+    p1.copy_to_device(halide_cuda_device_interface());
+
     auto start = std::chrono::steady_clock::now();
     sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], sdf, p0, p1);
 
     auto end = std::chrono::steady_clock::now();
+
     auto diff = end - start;
     std::cout << "Generated 128x128x128 SDF in "
               << std::chrono::duration <float, std::milli> (diff).count()
@@ -98,6 +114,12 @@ int main() {
                   output, debug, num_debug);
     end = std::chrono::steady_clock::now();
     diff = end - start;
+
+    std::cout << "done with rendering; copying back now" << std::endl;
+
+    output.copy_to_host();
+    debug.copy_to_host();
+    num_debug.copy_to_host();
 
     std::cout
             << "tracing took "

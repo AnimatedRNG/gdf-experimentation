@@ -251,7 +251,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
     GridSDF call_sobel(GridSDF sdf) {
         Func sb = sobel::generate(Halide::GeneratorContext(this->get_target(),
-                                  auto_schedule),
+                                  true),
         {sdf.buffer, sdf.n[0], sdf.n[1], sdf.n[2]});
         //sb.compute_root();
         //sb.trace_loads();
@@ -266,7 +266,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func origin("origin");
 
         auto outputs = projection::generate(Halide::GeneratorContext(this->get_target(),
-                                            auto_schedule),
+                                            true),
         {projection_, view_, width, height});
         original_ray_pos = outputs.ray_pos;
         ray_vec = outputs.ray_vec;
@@ -381,8 +381,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             forward_pass(grid_sdf)(x, y))*/
         Func fw_pass = forward_pass(grid_sdf);
 
-        end(x, y) = fw_pass(x, y);
-        //end(x, y) = backwards_pass(grid_sdf, fw_pass)(x, y);
+        //end(x, y) = fw_pass(x, y);
+        end(x, y) = backwards_pass(grid_sdf, fw_pass)(x, y);
 
         // flip image and RGB -> BGR to match OpenCV's output
         out_(x, y, c) = 0.0f;
@@ -392,7 +392,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         num_debug(x) = Func(Expr(current_debug) + initial_debug)();
 
-        if (auto_schedule) {
+        if (/*auto_schedule*/ true) {
             sdf_.dim(0).set_bounds_estimate(0, 32)
             .dim(1).set_bounds_estimate(0, 32)
             .dim(2).set_bounds_estimate(0, 32);
@@ -416,6 +416,53 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             .estimate(y, 0, 1080)
             .estimate(c, 0, 3);
             num_debug.estimate(x, 0, 1);
+
+            Pipeline p(std::vector<Func>({out_, debug_, num_debug}));
+            p.auto_schedule(this->get_target());
+
+            /*Halide::SimpleAutoscheduleOptions options;
+            options.gpu = get_target().has_gpu_feature();
+            options.gpu_tile_channel = 1;
+
+            std::vector<Func> output_func({out_, debug_, num_debug});
+            Halide::simple_autoschedule(
+            output_func, {
+                {"sdf_.min.0", 0},
+                {"sdf_.extent.0", 128},
+                {"sdf_.min.1", 0},
+                {"sdf_.extent.1", 128},
+                {"sdf_.min.2", 0},
+                {"sdf_.extent.2", 128},
+                {"projection_.min.0", 0},
+                {"projection_.extent.0", 4},
+                {"projection_.min.1", 0},
+                {"projection_.extent.1", 4},
+                {"view_.min.0", 0},
+                {"view_.extent.0", 4},
+                {"view_.min.1", 0},
+                {"view_.extent.1", 4},
+                {"p0_.min.0", 0},
+                {"p0_.extent.0", 4},
+                {"p1_.min.0", 0},
+                {"p1_.extent.0", 4}
+            }, {
+                {
+                    {0, 1920},
+                    {0, 1080},
+                    {0, 3}
+                },
+                {
+                    {0, current_debug},
+                    {0, 300},
+                    {0, 1920},
+                    {0, 1080},
+                    {0, 3}
+                },
+                {
+                    {0, 1}
+                }
+            },
+            options);*/
         }
     }
 };
