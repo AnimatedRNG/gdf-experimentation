@@ -6,7 +6,6 @@
 #include "gif.h"
 
 #include "tracer_render.h"
-#include "derivative_render.h"
 #include "sdf_gen.h"
 
 using namespace Halide::Runtime;
@@ -97,11 +96,6 @@ int main() {
                   width, height,
                   0,
                   output, debug, num_debug);
-    /*derivative_render(projection, view,
-                      sdf, p0, p1,
-                      width, height,
-                      0,
-                      output, debug, num_debug);*/
     end = std::chrono::steady_clock::now();
     diff = end - start;
 

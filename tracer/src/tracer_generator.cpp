@@ -381,8 +381,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             forward_pass(grid_sdf)(x, y))*/
         Func fw_pass = forward_pass(grid_sdf);
 
-        //end(x, y) = forward_pass(grid_sdf)(x, y);
-        end(x, y) = backwards_pass(grid_sdf, fw_pass)(x, y);
+        end(x, y) = fw_pass(x, y);
+        //end(x, y) = backwards_pass(grid_sdf, fw_pass)(x, y);
 
         // flip image and RGB -> BGR to match OpenCV's output
         out_(x, y, c) = 0.0f;

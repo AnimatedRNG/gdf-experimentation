@@ -50,19 +50,7 @@ halide_library_from_generator(tracer_render
                               EXTRA_OUTPUTS schedule
 )
 
-halide_generator(derivative_render.generator
-                 SRCS src/derivative_generator.cpp
-                 DEPS tracer_render.generator sobel.generator projection.generator
-)
-halide_library_from_generator(derivative_render
-                              GENERATOR derivative_render.generator
-                              GENERATOR_DEPS tracer_render.generator sobel.generator projection.generator
-                              GENERATOR_ARGS auto_schedule=true
-                              EXTRA_OUTPUTS schedule
-)
-
 target_link_libraries(tracer PUBLIC
                              ${CMAKE_THREAD_LIBS_INIT}
                              sdf_gen
-                             tracer_render
-                             derivative_render)
+                             tracer_render)
