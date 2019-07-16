@@ -65,29 +65,31 @@ int main() {
         {-0.3166, 1.1503, 8.8977, 1.0}
     };
 
-    const int32_t n_matrix[3] = {
+    /*const int32_t n_matrix[3] = {
         128, 128, 128
-    };
+        };*/
+    int n_matrix[3];
 
-    int width = 128;
-    int height = 128;
+    int width = 200;
+    int height = 200;
     int iterations = 400;
 
-    //float p0_x, p0_y, p0_z, p1_x, p1_y, p1_z;
     float p0_matrix[3];
     float p1_matrix[3];
-    Buffer<float> lucy = read_sdf("lucy.sdf",
+    Buffer<float> lucy = read_sdf("bunny.sdf",
                                   p0_matrix[0], p0_matrix[1], p0_matrix[2],
                                   p1_matrix[0], p1_matrix[1], p1_matrix[2],
-                                  true, true, 4.0f);
+                                  n_matrix[0], n_matrix[1], n_matrix[2],
+                                  true, true, 10.0f);
 
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);
     Buffer<float> sdf(n_matrix[0], n_matrix[1], n_matrix[2]);
-    Buffer<float> p0(3);
-    Buffer<float> p1(3);
-    //Buffer<float> p0(p0_matrix);
-    //Buffer<float> p1(p1_matrix);
+    //Buffer<float> p0(3);
+    //Buffer<float> p1(3);
+    Buffer<float> p0(p0_matrix);
+    Buffer<float> p1(p1_matrix);
+    //Buffer<int32_t> n(n_matrix);
     Buffer<int32_t> n(n_matrix);
     Buffer<float> output(width, height, 3);
     Buffer<uint8_t> debug(10, iterations, width, height, 4);
@@ -105,7 +107,7 @@ int main() {
     p0.set_host_dirty();
     p1.copy_to_device(halide_cuda_device_interface());
 
-    auto start = std::chrono::steady_clock::now();
+    /*auto start = std::chrono::steady_clock::now();
     sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], sdf, p0, p1);
 
     auto end = std::chrono::steady_clock::now();
@@ -114,17 +116,17 @@ int main() {
     std::cout << "Generated 128x128x128 SDF in "
               << std::chrono::duration <float, std::milli> (diff).count()
               << " ms"
-              << std::endl;
+              << std::endl;*/
 
-    start = std::chrono::steady_clock::now();
+    auto start = std::chrono::steady_clock::now();
     tracer_render(projection, view,
-                  sdf, p0, p1,
+                  lucy, p0, p1,
                   true,
                   width, height,
                   0,
                   output, debug, num_debug);
-    end = std::chrono::steady_clock::now();
-    diff = end - start;
+    auto end = std::chrono::steady_clock::now();
+    auto diff = end - start;
 
     std::cout << "done with rendering; copying back now" << std::endl;
 

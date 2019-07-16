@@ -12,6 +12,7 @@ using namespace Halide::Tools;
 inline Buffer<float> read_sdf(const std::string& filename,
                               float& p0_x, float& p0_y, float& p0_z,
                               float& p1_x, float& p1_y, float& p1_z,
+                              int& nx, int& ny, int& nz,
                               const bool& verbose = true,
                               const bool& rescale = true,
                               const float& scale_to = 1.0f) {
@@ -19,7 +20,6 @@ inline Buffer<float> read_sdf(const std::string& filename,
         throw std::runtime_error("error while parsing " + filename + ": " + a);
     };
 
-    int nx, ny, nz;
     float dx;
 
     std::string line;
@@ -64,20 +64,24 @@ inline Buffer<float> read_sdf(const std::string& filename,
 
     float scale_factor = 1.0f;
     if (rescale) {
-        p1_x -= p0_x;
-        p1_y -= p0_y;
-        p1_z -= p0_z;
+        p1_x = (p1_x - p0_x) / 2.0f;
+        p1_y = (p1_y - p0_y) / 2.0f;
+        p1_z = (p1_z - p0_z) / 2.0f;
 
-        p0_x = 0.0f;
-        p0_y = 0.0f;
-        p0_z = 0.0f;
+        p0_x = -p1_x;
+        p0_y = -p1_y;
+        p0_z = -p1_z;
 
-        float extent = std::max(p1_x, std::max(p1_y, p1_z));
+        float extent = std::max(p1_x, std::max(p1_y, p1_z)) * 2.0f;
         scale_factor = scale_to / extent;
 
         p1_x *= scale_factor;
         p1_y *= scale_factor;
         p1_z *= scale_factor;
+
+        p0_x *= scale_factor;
+        p0_y *= scale_factor;
+        p0_z *= scale_factor;
     }
 
     if (verbose) {
