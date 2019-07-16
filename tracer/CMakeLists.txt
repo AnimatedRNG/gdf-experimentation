@@ -21,22 +21,25 @@ target_include_directories(tracer PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOL
 
 halide_generator(sobel.generator SRCS src/sobel_generator.cpp)
 halide_library_from_generator(sobel GENERATOR sobel.generator
-                                    GENERATOR_ARGS auto_schedule=true
+                                    #GENERATOR_ARGS auto_schedule=true
                                     EXTRA_OUTPUTS schedule
+                                    HALIDE_TARGET_FEATURES cuda
 )
 
 halide_generator(projection.generator SRCS src/projection_generator.cpp)
 halide_library_from_generator(projection
                                     GENERATOR projection.generator
-                                    GENERATOR_ARGS auto_schedule=true
+                                    #GENERATOR_ARGS auto_schedule=true
                                     EXTRA_OUTPUTS schedule
+                                    HALIDE_TARGET_FEATURES cuda
 )
 
 halide_generator(sdf_gen.generator SRCS src/sdf_generator.cpp)
 halide_library_from_generator(sdf_gen
                               GENERATOR sdf_gen.generator
-                              GENERATOR_ARGS auto_schedule=true
+                              #GENERATOR_ARGS auto_schedule=true
                               EXTRA_OUTPUTS schedule
+                              HALIDE_TARGET_FEATURES cuda
 )
 
 halide_generator(tracer_render.generator
@@ -46,8 +49,9 @@ halide_generator(tracer_render.generator
 halide_library_from_generator(tracer_render
                               GENERATOR tracer_render.generator
                               GENERATOR_DEPS sobel.generator projection.generator
-                              GENERATOR_ARGS auto_schedule=true
+                              #GENERATOR_ARGS auto_schedule=true
                               EXTRA_OUTPUTS schedule
+                              HALIDE_TARGET_FEATURES cuda
 )
 
 target_link_libraries(tracer PUBLIC
