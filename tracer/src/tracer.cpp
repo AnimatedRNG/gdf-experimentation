@@ -68,8 +68,8 @@ int main() {
         128, 128, 128
     };
 
-    int width = 300;
-    int height = 300;
+    int width = 128;
+    int height = 128;
     int iterations = 400;
 
     Buffer<float> projection(projection_matrix);

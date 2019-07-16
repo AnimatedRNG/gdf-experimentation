@@ -330,14 +330,15 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         Func forward("forward");
         forward(x, y) = volumetric_shaded(x, y, iterations - 1);
+        //forward(x, y) = pos(x, y, iterations - 1);
 
         record(pos);
         record(intensity);
         record(dist);
         record(normals_debug);
         record(g_d);
-        record(opc);
-        record(volumetric_shaded);
+        //record(opc);
+        //record(volumetric_shaded);
 
         return forward;
     }
@@ -359,7 +360,14 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         auto dr = propagate_adjoints(loss);
         Func dSDF_dLoss = dr(sdf_);
         Func backwards("backwards");
-        backwards(x, y) = {dSDF_dLoss(x, y, 0), 0.0f, 0.0f};
+        backwards(x, y) = {dSDF_dLoss(x, y, 50), 0.0f, 0.0f};
+
+        Func debug_gradient("debug_gradient");
+        debug_gradient(x, y, c) = dSDF_dLoss(x,
+                                             y,
+                                             cast<int>((cast<float>(c) / 400.0f) * 128));
+        debug_gradient(x, y, c) = select(debug_gradient(x, y, c) != 0.0f, 1.0f, 0.0f);
+        record(debug_gradient);
 
         return backwards;
         //return Func(Tuple(loss_xy, loss_xy, loss_xy));
@@ -417,10 +425,10 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             .estimate(c, 0, 3);
             num_debug.estimate(x, 0, 1);
 
-            Pipeline p(std::vector<Func>({out_, debug_, num_debug}));
-            p.auto_schedule(this->get_target());
+            //Pipeline p(std::vector<Func>({out_, debug_, num_debug}));
+            //p.auto_schedule(this->get_target());
 
-            /*Halide::SimpleAutoscheduleOptions options;
+            Halide::SimpleAutoscheduleOptions options;
             options.gpu = get_target().has_gpu_feature();
             options.gpu_tile_channel = 1;
 
@@ -444,7 +452,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                 {"p0_.min.0", 0},
                 {"p0_.extent.0", 4},
                 {"p1_.min.0", 0},
-                {"p1_.extent.0", 4}
+                {"p1_.extent.0", 4},
+                {"width", 1920},
+                {"height", 1080},
             }, {
                 {
                     {0, 1920},
@@ -462,7 +472,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                     {0, 1}
                 }
             },
-            options);*/
+            options);
         }
     }
 };
