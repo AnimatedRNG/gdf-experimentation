@@ -122,8 +122,8 @@ Expr example_box(TupleVec<3> position) {
     return norm(max(d, Expr(0.0f))) + vmax(min(d, Expr(0.0f)));
 }
 
-Expr to_render_dist(Expr dist) {
-    return 1.0f / \
+Expr to_render_dist(Expr dist, Expr scale_factor = Expr(5.0f)) {
+    return scale_factor /                                                  \
            (10.0f + (1.0f - Halide::clamp(Halide::abs(dist), 0.0f, 1.0f)) * 90.0f);
 }
 
@@ -273,12 +273,13 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
     void call_sobel(GridSDF sdf) {
         Func sb_func = sobel::generate(Halide::GeneratorContext(this->get_target(),
-                                  true),
+                                       true),
         {sdf.buffer, sdf.n[0], sdf.n[1], sdf.n[2]});
         //sb.compute_root();
         //sb.trace_loads();
 
-        this->sb = std::shared_ptr<GridSDF>(new GridSDF(sb_func, sdf.p0, sdf.p1, sdf.n));
+        this->sb = std::shared_ptr<GridSDF>(new GridSDF(sb_func, sdf.p0, sdf.p1,
+                                            sdf.n));
     }
 
     Func forward_pass(const GridSDF& sdf,
@@ -346,8 +347,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         record(dist);
         record(normals_debug);
         record(g_d);
-        //record(opc);
-        //record(volumetric_shaded);
+        record(opc);
+        record(volumetric_shaded);
 
         return forward;
     }
