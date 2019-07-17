@@ -167,7 +167,60 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Func normals_debug{"normals_debug"};
     Func forward{"forward"};
 
+    std::map<std::string, Func> _tuplevec_unpacked;
+
     int current_debug = 0;
+
+    // Unpacks a tuple valued function into a new channel,
+    // stores it in _tuplevec_unpacked, packs it up again
+    // and returns it.
+    //
+    // A hack to get gradients for tuple-valued functions
+    template <unsigned int N>
+    Func repack(Func other) {
+        Var C("C");
+        std::vector<Expr> args;
+        args.clear();
+        for (auto arg : other.args()) {
+            args.push_back(Expr(arg));
+        }
+
+        std::vector<Expr> pure(args);
+        pure.push_back(Expr(C));
+
+        std::vector<std::vector<Expr>> impure;
+        impure.clear();
+        for (int i = 0; i < N; i++) {
+            std::vector<Expr> impure_iteration(args);
+            impure_iteration.push_back(i);
+            impure.push_back(impure_iteration);
+        }
+
+        Func packed(other.name() + "_packed");
+        packed(pure) = 0.0f;
+        for (int i = 0; i < N; i++) {
+            const std::vector<Expr>& impure_iteration = impure[i];
+            packed(impure_iteration) = other(args)[i];
+        }
+
+        _tuplevec_unpacked[other.name()] = packed;
+
+        Func unpacked(other.name() + "_unpacked");
+        std::vector<Expr> unpacked_tuple;
+        unpacked_tuple.clear();
+        for (int i = 0; i < N; i++) {
+            const std::vector<Expr>& impure_iteration = impure[i];
+            unpacked_tuple.push_back(packed(impure_iteration));
+        }
+
+        unpacked(args) = Tuple(unpacked_tuple);
+
+        return unpacked;
+    }
+
+    Func get_packed(const std::string& name) {
+        return _tuplevec_unpacked[name];
+    }
 
     void record(Func f) {
         _record(f, debug_, num_debug, initial_debug, current_debug);
@@ -339,8 +392,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                       TupleVec<3>(
                                           normal_evaluation_position(x, y, t)))).get();
 
-        forward(x, y) = volumetric_shaded(x, y, iterations - 1);
-        //forward(x, y) = pos(x, y, iterations - 1);
+        //forward(x, y) = volumetric_shaded(x, y, iterations - 1);
+        forward(x, y) = repack<3>(pos)(x, y, iterations - 1);
 
         record(pos);
         record(intensity);
@@ -368,16 +421,30 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         loss() += loss_y(ry);
 
         auto dr = propagate_adjoints(loss);
-        Func dSDF_dLoss = dr(sdf_);
+        //Func dLoss_dSDF = dr(sdf_);
+        Func dLoss_dpos = dr(get_packed("pos"));
+        //Func dLoss_dloss = dr(loss_xy);
         Func backwards("backwards");
-        backwards(x, y) = {dSDF_dLoss(x, y, 50), 0.0f, 0.0f};
+        //backwards(x, y) = {dLoss_dSDF(x, y, 50), 0.0f, 0.0f};
+        //backwards(x, y) = {dLoss_dpos(x, y, 398)};
+        //backwards(x, y) = {dLoss_dloss(x, y), dLoss_dloss(x, y), dLoss_dloss(x, y)};
+        backwards(x, y) = {dLoss_dpos(x, y, iterations-1, 0),
+                           dLoss_dpos(x, y, iterations-1, 1),
+                           dLoss_dpos(x, y, iterations-1, 2)};
 
         Func debug_gradient("debug_gradient");
-        debug_gradient(x, y, c) = dSDF_dLoss(x,
+        /*debug_gradient(x, y, c) = dLoss_dpos(x,
                                              y,
-                                             cast<int>((cast<float>(c) / 400.0f) * 128));
-        debug_gradient(x, y, c) = select(debug_gradient(x, y, c) != 0.0f, 1.0f, 0.0f);
+                                             cast<int>((cast<float>(c) / 400.0f) * 128));*/
+        //debug_gradient(x, y, c) = {dLoss_dloss(x, y), dLoss_dloss(x, y), dLoss_dloss(x, y)};
+        /*debug_gradient(x, y, c) = {
+            select(debug_gradient(x, y, c)[0] != 0.0f, 1.0f, 0.0f),
+            select(debug_gradient(x, y, c)[1] != 0.0f, 1.0f, 0.0f),
+            select(debug_gradient(x, y, c)[2] != 0.0f, 1.0f, 0.0f)
+            };*/
+        debug_gradient(x, y, c) = backwards(x, y);
         record(debug_gradient);
+        //print_func(debug_gradient);
 
         return backwards;
         //return Func(Tuple(loss_xy, loss_xy, loss_xy));
@@ -399,14 +466,18 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             forward_pass(grid_sdf)(x, y))*/
         Func fw_pass = forward_pass(grid_sdf);
 
-        end(x, y) = fw_pass(x, y);
-        //end(x, y) = backwards_pass(grid_sdf, fw_pass)(x, y);
+        //end(x, y) = fw_pass(x, y);
+        end(x, y) = backwards_pass(grid_sdf, fw_pass)(x, y);
 
         // flip image and RGB -> BGR to match OpenCV's output
-        out_(x, y, c) = 0.0f;
+        /*out_(x, y, c) = 0.0f;
         out_(x, y, 0) = clamp(end(y, x)[2], 0.0f, 1.0f);
         out_(x, y, 1) = clamp(end(y, x)[1], 0.0f, 1.0f);
-        out_(x, y, 2) = clamp(end(y, x)[0], 0.0f, 1.0f);
+        out_(x, y, 2) = clamp(end(y, x)[0], 0.0f, 1.0f);*/
+        out_(x, y, c) = 0.0f;
+        out_(x, y, 0) = end(y, x)[0];
+        out_(x, y, 1) = end(y, x)[1];
+        out_(x, y, 2) = end(y, x)[2];
 
         num_debug(x) = Func(Expr(current_debug) + initial_debug)();
 
