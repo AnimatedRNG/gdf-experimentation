@@ -123,8 +123,9 @@ Expr example_box(TupleVec<3> position) {
 }
 
 Expr to_render_dist(Expr dist, Expr scale_factor = Expr(5.0f)) {
-    return scale_factor /                                                  \
-           (10.0f + (1.0f - Halide::clamp(Halide::abs(dist), 0.0f, 1.0f)) * 90.0f);
+    return scale_factor /                                           \
+      (10.0f + (1.0f - Halide::clamp(Halide::abs(dist), 0.0f, 1.0f)) * 90.0f);
+    //return scale_factor / 10.0f;
 }
 
 class TracerGenerator : public Halide::Generator<TracerGenerator> {
@@ -167,7 +168,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Func normals_debug{"normals_debug"};
     Func forward{"forward"};
 
-    std::map<std::string, Func> _tuplevec_unpacked;
+    std::map<std::string, std::vector<Func>> _tuplevec_unpacked;
 
     int current_debug = 0;
 
@@ -185,41 +186,30 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             args.push_back(Expr(arg));
         }
 
-        std::vector<Expr> pure(args);
-        pure.push_back(Expr(C));
-
-        std::vector<std::vector<Expr>> impure;
-        impure.clear();
+        std::vector<Func> packed;
+        packed.clear();
         for (int i = 0; i < N; i++) {
-            std::vector<Expr> impure_iteration(args);
-            impure_iteration.push_back(i);
-            impure.push_back(impure_iteration);
+            Func packed_i(other.name() + "_packed_" + std::to_string(i));
+            packed_i(args) = other(args)[i];
+            packed.push_back(packed_i);
         }
-
-        Func packed(other.name() + "_packed");
-        packed(pure) = 0.0f;
-        for (int i = 0; i < N; i++) {
-            const std::vector<Expr>& impure_iteration = impure[i];
-            packed(impure_iteration) = other(args)[i];
-        }
-
-        _tuplevec_unpacked[other.name()] = packed;
 
         Func unpacked(other.name() + "_unpacked");
         std::vector<Expr> unpacked_tuple;
         unpacked_tuple.clear();
         for (int i = 0; i < N; i++) {
-            const std::vector<Expr>& impure_iteration = impure[i];
-            unpacked_tuple.push_back(packed(impure_iteration));
+            unpacked_tuple.push_back(packed[i](args));
         }
 
         unpacked(args) = Tuple(unpacked_tuple);
 
+        _tuplevec_unpacked[other.name()] = std::move(packed);
+
         return unpacked;
     }
 
-    Func get_packed(const std::string& name) {
-        return _tuplevec_unpacked[name];
+    Func& get_packed(const std::string& name, const int& index) {
+        return _tuplevec_unpacked.at(name).at(index);
     }
 
     void record(Func f) {
@@ -328,8 +318,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func sb_func = sobel::generate(Halide::GeneratorContext(this->get_target(),
                                        true),
         {sdf.buffer, sdf.n[0], sdf.n[1], sdf.n[2]});
-        //sb.compute_root();
-        //sb.trace_loads();
 
         this->sb = std::shared_ptr<GridSDF>(new GridSDF(sb_func, sdf.p0, sdf.p1,
                                             sdf.n));
@@ -345,7 +333,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         origin = outputs.origin;
 
         call_sobel(sdf);
-        //this->sb = std::optional{call_sobel(sdf)};
 
         Expr d("d");
         Expr ds("ds");
@@ -353,6 +340,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
         pos(x, y, 0) = original_ray_pos(x, y);
         d = trilinear<1>(sdf, TupleVec<3>(Tuple(pos(x, y, tr))))[0];
+        //d = example_box(TupleVec<3>(pos(x, y, tr)));
         ds = to_render_dist(d);
         pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
                              ds * TupleVec<3>(ray_vec(x, y))).get();
@@ -414,7 +402,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         RDom rx(0, width);
         RDom ry(0, height);
         loss_xyc(x, y) = (1.0f - TupleVec<3>(forward(x, y))).get();
-        loss_xy(x, y) = norm(loss_xyc(x, y));
+        loss_xy(x, y) = norm(repack<3>(loss_xyc)(x, y));
         loss_y(y) = 0.0f;
         loss_y(y) += loss_xy(rx, y);
         loss() = 0.0f;
@@ -422,33 +410,22 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         auto dr = propagate_adjoints(loss);
         //Func dLoss_dSDF = dr(sdf_);
-        Func dLoss_dpos = dr(get_packed("pos"));
-        //Func dLoss_dloss = dr(loss_xy);
+
         Func backwards("backwards");
         //backwards(x, y) = {dLoss_dSDF(x, y, 50), 0.0f, 0.0f};
-        //backwards(x, y) = {dLoss_dpos(x, y, 398)};
-        //backwards(x, y) = {dLoss_dloss(x, y), dLoss_dloss(x, y), dLoss_dloss(x, y)};
-        backwards(x, y) = {dLoss_dpos(x, y, iterations-1, 0),
-                           dLoss_dpos(x, y, iterations-1, 1),
-                           dLoss_dpos(x, y, iterations-1, 2)};
+        Func de("de");
+        de(x, y, c) = {select(dr(get_packed("pos", 0))(x, y, c) != 0.0f, 1.0f, 0.0f),
+                       select(dr(get_packed("pos", 1))(x, y, c) != 0.0f, 1.0f, 0.0f),
+                       select(dr(get_packed("pos", 2))(x, y, c) != 0.0f, 1.0f, 0.0f)
+                      };
+        backwards(x, y) = de(x, y, iterations - 1);
 
         Func debug_gradient("debug_gradient");
-        /*debug_gradient(x, y, c) = dLoss_dpos(x,
-                                             y,
-                                             cast<int>((cast<float>(c) / 400.0f) * 128));*/
-        //debug_gradient(x, y, c) = {dLoss_dloss(x, y), dLoss_dloss(x, y), dLoss_dloss(x, y)};
-        /*debug_gradient(x, y, c) = {
-            select(debug_gradient(x, y, c)[0] != 0.0f, 1.0f, 0.0f),
-            select(debug_gradient(x, y, c)[1] != 0.0f, 1.0f, 0.0f),
-            select(debug_gradient(x, y, c)[2] != 0.0f, 1.0f, 0.0f)
-            };*/
-        debug_gradient(x, y, c) = backwards(x, y);
+        debug_gradient(x, y, c) = de(x, y, c);
         record(debug_gradient);
         //print_func(debug_gradient);
 
         return backwards;
-        //return Func(Tuple(loss_xy, loss_xy, loss_xy));
-        //return loss_xyc;
     }
 
     void generate() {
