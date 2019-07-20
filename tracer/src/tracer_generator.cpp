@@ -11,6 +11,9 @@
 #include "sobel.stub.h"
 #include "projection.stub.h"
 
+#include <unordered_map>
+#include <unordered_set>
+#include <deque>
 #include <stdio.h>
 
 using namespace Halide;
@@ -105,7 +108,105 @@ TupleVec<N> trilinear(const GridSDF& sdf, TupleVec<3> position) {
     }
 }
 
+void wrap_children(std::vector<Internal::Function>& children,
+                   std::unordered_map<std::string, Internal::Function>& substitutions,
+                   const int& iteration) {
+    std::unordered_map<std::string, Internal::Function> seen;
+    std::deque<Internal::Function> agenda;
+    agenda.clear();
+    for (auto child : children) {
+        std::cout << "child " << child.name() << std::endl;
+        seen[child.name()] = child;
+        agenda.push_back(child);
+    }
 
+    // Performs BFS on children
+    while (!agenda.empty()) {
+        Internal::Function& child = agenda.front();
+        seen[child.name()] = child;
+        agenda.pop_front();
+
+        const std::string child_name(child.name());
+        const std::map<std::string, Internal::Function> parents(
+            Internal::find_direct_calls(child));
+
+        for (auto& parent : parents) {
+            std::cout << "parents of " << child_name << " include " << parent.first
+                      << std::endl;
+            if (substitutions.count(parent.first)) {
+                std::cout << "In " << child.name() << " substituting "
+                          << parent.second.name() << " with "
+                          << substitutions[parent.first].name() << std::endl;
+                child.substitute_calls(parent.second, substitutions[parent.first]);
+            } else if (seen.count(parent.first) == 0) {
+                agenda.push_back(parent.second);
+            }
+        }
+    }
+}
+
+// TODO: Just get rid of this function, and do things using the function passing approach
+void wrap_reduction(
+    // Maps from output name -> Function
+    std::unordered_map<std::string, Internal::Function> loop_body,
+    // Maps from iteration 0 function name -> input name
+    std::unordered_map<std::string, std::string> first_iteration,
+    const int& iterations
+) {
+    std::unordered_map<std::string, Internal::Function> substitutions;
+    for (auto& output_pair : first_iteration) {
+        // On iteration 0 we want to substitute the base case,
+        // represented by output.first -> the output represented by that name
+        substitutions[output_pair.first] = loop_body[output_pair.second];
+    }
+
+    std::unordered_map<std::string, Internal::Function> old_children(loop_body);
+    std::unordered_map<std::string, Internal::Function> children;
+    for (int i = 1; i < iterations; i++) {
+        children.clear();
+
+        std::map<Internal::FunctionPtr, Internal::FunctionPtr> copied_map;
+        for (auto& output : old_children) {
+            // What are we even doing with output_copy?
+            Func output_copy;
+            output.second.deep_copy(
+                output.first + "_iter" + std::to_string(i),
+                output_copy.function().get_contents(),
+                copied_map
+            );
+
+            for (auto& transitive_call : Internal::find_transitive_calls(
+                        output_copy.function())) {
+                if (copied_map.count(transitive_call.second.get_contents()) == 0) {
+                    std::cout << "don't see the point in copying " <<
+                              transitive_call.second.name() << " again" <<
+                              std::endl;
+                    copied_map[transitive_call.second.get_contents()] =
+                        transitive_call.second.get_contents();
+                }
+            }
+
+            std::cout << "children[" << output.first << "]: " << output_copy.name() <<
+                      std::endl;
+            //children[output.first] = output.second;
+            children[output.first] = output_copy.function();
+        }
+
+        std::vector<Internal::Function> children_vec;
+        for (auto& child : children) {
+            children_vec.push_back(child.second);
+        }
+        wrap_children(children_vec, substitutions, i);
+
+        for (auto& output_pair : first_iteration) {
+            // On iteration i we want to substitute the last case,
+            // represented by output.first -> the output represented by that name
+            substitutions[output_pair.first] = children[output_pair.second];
+        }
+
+        old_children = children;
+    }
+}
 
 Expr example_sphere(TupleVec<3> position) {
     return norm(position) - 3.0f;
@@ -122,9 +223,9 @@ Expr example_box(TupleVec<3> position) {
     return norm(max(d, Expr(0.0f))) + vmax(min(d, Expr(0.0f)));
 }
 
-Expr to_render_dist(Expr dist, Expr scale_factor = Expr(5.0f)) {
+Expr to_render_dist(Expr dist, Expr scale_factor = Expr(1.0f)) {
     return scale_factor /                                           \
-      (10.0f + (1.0f - Halide::clamp(Halide::abs(dist), 0.0f, 1.0f)) * 90.0f);
+           (10.0f + (1.0f - Halide::clamp(Halide::abs(dist), 0.0f, 1.0f)) * 90.0f);
     //return scale_factor / 10.0f;
 }
 
@@ -344,6 +445,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         ds = to_render_dist(d);
         pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
                              ds * TupleVec<3>(ray_vec(x, y))).get();
+        //pos(x, y, t) = Tuple(1.0f, 1.0f, 1.0f);
+        //pos(x, y, 0) = original_ray_pos(x, y);
+        //d = 0.1f;
+        //ds = 0.1f;
+        //pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) * Expr(1.01f)).get();
 
         Var xi, xo, yi, yo;
         dist(x, y, t) = 0.0f;
@@ -408,20 +514,47 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         loss() = 0.0f;
         loss() += loss_y(ry);
 
+        Func a("a"), b("b"), d("d"), e("e");
+        d() = 3.0f;
+        a() = d();
+        b() = a() * a();
+        e() = b();
+
+        Func e_copy;
+        std::map< Internal::FunctionPtr, Internal::FunctionPtr > copy_map;
+        e.function().deep_copy("blah", e_copy.function().get_contents(),
+                               copy_map);
+        for (auto call : Internal::find_transitive_calls(e_copy.function())) {
+            std::cout << "call " << call.first << std::endl;
+        }
+
+        /*std::vector<Internal::Function> kids({e.function(), b.function()});
+        std::unordered_map<std::string, Internal::Function> subs({{std:: string("a"), d.function()}});
+        wrap_children(kids, subs, 0);*/
+        //wrap_reduction({{"e", e.function()}, {"a", a.function()}}, {{"d", "a"}}, 300);
+
+        Buffer<float> test = e.realize();
+        std::cout << "test is " << test() << std::endl;
+
         auto dr = propagate_adjoints(loss);
-        //Func dLoss_dSDF = dr(sdf_);
+        Func dLoss_dSDF = dr(sdf_);
 
         Func backwards("backwards");
-        //backwards(x, y) = {dLoss_dSDF(x, y, 50), 0.0f, 0.0f};
+        backwards(x, y) = {dLoss_dSDF(x, y, 50), 0.0f, 0.0f};
         Func de("de");
-        de(x, y, c) = {select(dr(get_packed("pos", 0))(x, y, c) != 0.0f, 1.0f, 0.0f),
+        de(x, y, c) = {
+            select(dLoss_dSDF(x, y, c) != 0.0f, 1.0f, 0.0f),
+            select(dLoss_dSDF(x, y, c) != 0.0f, 1.0f, 0.0f),
+            select(dLoss_dSDF(x, y, c) != 0.0f, 1.0f, 0.0f)
+        };
+        /*de(x, y, c) = {select(dr(get_packed("pos", 0))(x, y, c) != 0.0f, 1.0f, 0.0f),
                        select(dr(get_packed("pos", 1))(x, y, c) != 0.0f, 1.0f, 0.0f),
                        select(dr(get_packed("pos", 2))(x, y, c) != 0.0f, 1.0f, 0.0f)
                       };
-        backwards(x, y) = de(x, y, iterations - 1);
+                      backwards(x, y) = de(x, y, iterations - 1);*/
 
         Func debug_gradient("debug_gradient");
-        debug_gradient(x, y, c) = de(x, y, c);
+        debug_gradient(x, y, c) = de(x, y, cast<int32_t>((c / 400.0f) * 128.0f));
         record(debug_gradient);
         //print_func(debug_gradient);
 
