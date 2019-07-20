@@ -1,5 +1,4 @@
 #include <iostream>
-#include <optional>
 #include <tuple>
 #include <string>
 
@@ -109,140 +108,6 @@ TupleVec<N> trilinear(const GridSDF& sdf, TupleVec<3> position) {
     }
 }
 
-void wrap_children(std::vector<Internal::Function>& children,
-                   std::unordered_map<std::string, Internal::Function>& substitutions,
-                   const int& iteration) {
-    std::unordered_map<std::string, Internal::Function> seen;
-    std::deque<Internal::Function> agenda;
-    agenda.clear();
-    for (auto child : children) {
-        std::cout << "child " << child.name() << std::endl;
-        seen[child.name()] = child;
-        agenda.push_back(child);
-    }
-
-    // Performs BFS on children
-    while (!agenda.empty()) {
-        Internal::Function& child = agenda.front();
-        seen[child.name()] = child;
-        agenda.pop_front();
-
-        const std::string child_name(child.name());
-        const std::map<std::string, Internal::Function> parents(
-            Internal::find_direct_calls(child));
-
-        for (auto& parent : parents) {
-            std::cout << "parents of " << child_name << " include " << parent.first
-                      << std::endl;
-            if (substitutions.count(parent.first)) {
-                std::cout << "In " << child.name() << " substituting "
-                          << parent.second.name() << " with "
-                          << substitutions[parent.first].name() << std::endl;
-                child.substitute_calls(parent.second, substitutions[parent.first]);
-            } else if (seen.count(parent.first) == 0) {
-                agenda.push_back(parent.second);
-            }
-        }
-    }
-}
-
-std::unordered_map<std::string, Func> wrap_reduction(
-    std::function<std::unordered_map
-    <std::string, Func>(std::unordered_map < std::string, Func>
-                       ) > loop_body,
-    std::unordered_map<std::string, Func> first_iteration,
-    const int& iterations
-) {
-    std::unordered_map<std::string, Func> inputs(first_iteration);
-    std::unordered_map<std::string, Func> output(loop_body(
-                first_iteration));
-
-    for (int i = 1; i < iterations; i++) {
-        std::unordered_map<std::string, Func> new_inputs;
-
-        for (auto input_pair : inputs) {
-            if (output.count(input_pair.first)) {
-                new_inputs[input_pair.first] = output[input_pair.first];
-            } else {
-                new_inputs[input_pair.first] = input_pair.second;
-            }
-        }
-
-        output = loop_body(new_inputs);
-        inputs = new_inputs;
-    }
-
-    return output;
-}
-
-void print_func_dependencies(Internal::Function f) {
-    auto mp = Internal::find_direct_calls(f);
-    if (mp.empty()) {
-        std::cout << f.name() << " has no dependencies" << std::endl;
-    } else {
-        std::cout << f.name() << "depends on ";
-        for (auto& pair : mp) {
-            std::cout << pair.first << " ";
-        }
-        std::cout << std::endl;
-        for (auto& pair : mp) {
-            print_func_dependencies(pair.second);
-        }
-    }
-}
-
-std::vector<Internal::Function> get_all_iterations(Func f) {
-    std::deque<Internal::Function> agenda;
-    agenda.clear();
-    agenda.push_back(f.function());
-
-    std::vector<Internal::Function> all_iterations;
-    all_iterations.push_back(f.function());
-
-    int iteration;
-    std::string base_name;
-    size_t mangle_index = f.name().find("$");
-    if (mangle_index != std::string::npos) {
-        iteration = std::stoi(f.name().substr(mangle_index + 1));
-        base_name = f.name().substr(0, mangle_index);
-        std::cout << "starting iteration is " << iteration << std::endl;
-        iteration--;
-    } else {
-        std::cout << "can't even find first iteration" << std::endl;
-        return all_iterations;
-    }
-
-    while (!agenda.empty()) {
-        Internal::Function item = agenda.front();
-        agenda.pop_front();
-        auto mp = Internal::find_direct_calls(item);
-        for (auto& child_entry : mp) {
-            std::string child_name = child_entry.first;
-            std::string iteration_name = base_name +
-                std::string("$") + std::to_string(iteration);
-            if (Internal::starts_with(child_name, iteration_name)) {
-                all_iterations.push_back(child_entry.second);
-                std::cout << "managed to find " << child_entry.first << std::endl;
-                iteration -= 1;
-            }
-
-            agenda.push_back(child_entry.second);
-        }
-    }
-
-    return all_iterations;
-}
-
-std::unordered_map<std::string, Func> create_example(
-    std::unordered_map<std::string, Func> inp) {
-    Func a("a"), b("b"), e("e");
-    a() = inp["a"]();
-    b() = a() * a();
-    e() = b();
-
-    return {{"b", b}, {"a", e}};
-}
-
 Expr example_sphere(TupleVec<3> position) {
     return norm(position) - 3.0f;
 }
@@ -304,6 +169,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Func normals_debug{"normals_debug"};
     Func forward{"forward"};
 
+    Func middle_func{"middle_func"};
+
     std::map<std::string, std::vector<Func>> _tuplevec_unpacked;
 
     int current_debug = 0;
@@ -316,7 +183,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     template <unsigned int N>
     Func repack(Func other) {
         Var C("C");
-        std::vector<Expr> args;
+        std::vector<Expr> args; //
         args.clear();
         for (auto arg : other.args()) {
             args.push_back(Expr(arg));
@@ -367,10 +234,10 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         mix(pure) = 0.0f;
         for (auto func_it = funcs.begin();
-             func_it != funcs.end();
-             func_it++) {
+                func_it != funcs.end();
+                func_it++) {
             std::vector<Expr> impure(args);
-            impure.push_back(Expr((int32_t) (func_it - funcs.begin())));
+            impure.push_back(Expr((int32_t)(func_it - funcs.begin())));
             mix(impure) = Func(*func_it)(args);
         }
 
@@ -498,18 +365,21 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Expr d("d");
         Expr ds("ds");
 
-        pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
-        pos(x, y, 0) = original_ray_pos(x, y);
-        d = trilinear<1>(sdf, TupleVec<3>(Tuple(pos(x, y, tr))))[0];
-        //d = example_box(TupleVec<3>(pos(x, y, tr)));
-        ds = to_render_dist(d);
-        pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
-                             ds * TupleVec<3>(ray_vec(x, y))).get();
-        //pos(x, y, t) = Tuple(1.0f, 1.0f, 1.0f);
+        middle_func(x, y) = 1.0f;
+
+        //pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
         //pos(x, y, 0) = original_ray_pos(x, y);
-        //d = 0.1f;
-        //ds = 0.1f;
-        //pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) * Expr(1.01f)).get();
+        //pos(x, y, t) = original_ray_pos(x, y);
+        //d = trilinear<1>(sdf, TupleVec<3>(Tuple(pos(x, y, tr))))[0];
+        //d = example_box(TupleVec<3>(pos(x, y, tr)));
+        //ds = to_render_dist(d);
+        ///pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
+        //                     ds * TupleVec<3>(ray_vec(x, y))).get();
+        pos(x, y, t) = Tuple(middle_func(x, y), middle_func(x, y), middle_func(x, y));
+        //pos(x, y, 0) = original_ray_pos(x, y);
+        d = 0.1f;
+        ds = 0.1f;
+        pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) * Expr(1.00f)).get();
 
         Var xi, xo, yi, yo;
         dist(x, y, t) = 0.0f;
@@ -547,7 +417,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                           normal_evaluation_position(x, y, t)))).get();
 
         //forward(x, y) = volumetric_shaded(x, y, iterations - 1);
-        forward(x, y) = repack<3>(pos)(x, y, iterations - 1);
+        //forward(x, y) = repack<3>(pos)(x, y, iterations - 1);
+        forward(x, y) = repack<3>(pos)(x, y, iterations);
 
         record(pos);
         record(intensity);
@@ -574,35 +445,42 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         loss() = 0.0f;
         loss() += loss_y(ry);
 
-        Func d("d");
-        d() = 3.0f;
-        auto mp = wrap_reduction(create_example, {{"a", d}}, 300);
-        //print_func_dependencies(mp.at("a").function());
-        Func final_a = mp.at("a");
-        Derivative der = propagate_adjoints(final_a);
-        Func da_dd = der(d);
-        apply_auto_schedule(da_dd);
-        auto all_iters = get_all_iterations(da_dd);
+        /*Func a("a"), b("b"), d("d");
+        RDom z(0, 3);
+        d() = 5.0f;
+        a(x) = d();
+        a(z + 1) = a(z) * 2.0f;
+        // b() = a(3) = a(2) * 5 = (a(1) * 5) * 5 = ((a(0) * 5) * 5) * 5 = 375
+        // db/da(0) = ((1 * 5) * 5) * 5 = 125
+        b() = a(3);
+
+        Func dbdd = propagate_adjoints(b)(d);
+
+        Buffer<float> test = b.realize();
+        std::cout << "test is " << test() << std::endl;
+        Buffer<float> deriv = dbdd.realize();
+        std::cout << "dbda is " << deriv() << std::endl;*/
 
         //Buffer<float> test = da_dd.realize();
         //std::cout << "test is " << test() << std::endl;
 
         auto dr = propagate_adjoints(loss);
-        Func dLoss_dSDF = dr(sdf_);
+        //Func dLoss_dSDF = dr(sdf_);
 
         Func backwards("backwards");
-        backwards(x, y) = {dLoss_dSDF(x, y, 50), 0.0f, 0.0f};
+        //backwards(x, y) = {dLoss_dSDF(x, y, 50), 0.0f, 0.0f};
         Func de("de");
-        de(x, y, c) = {
+        /*de(x, y, c) = {
             select(dLoss_dSDF(x, y, c) != 0.0f, 1.0f, 0.0f),
             select(dLoss_dSDF(x, y, c) != 0.0f, 1.0f, 0.0f),
             select(dLoss_dSDF(x, y, c) != 0.0f, 1.0f, 0.0f)
-        };
+            };*/
         /*de(x, y, c) = {select(dr(get_packed("pos", 0))(x, y, c) != 0.0f, 1.0f, 0.0f),
                        select(dr(get_packed("pos", 1))(x, y, c) != 0.0f, 1.0f, 0.0f),
                        select(dr(get_packed("pos", 2))(x, y, c) != 0.0f, 1.0f, 0.0f)
-                      };
-                      backwards(x, y) = de(x, y, iterations - 1);*/
+                       };*/
+        de(x, y, c) = {dr(middle_func)(x, y), dr(middle_func)(x, y), dr(middle_func)(x, y)};
+        backwards(x, y) = de(x, y, iterations);
 
         Func debug_gradient("debug_gradient");
         debug_gradient(x, y, c) = de(x, y, cast<int32_t>((c / 400.0f) * 128.0f));
