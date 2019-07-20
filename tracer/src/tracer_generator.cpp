@@ -145,67 +145,59 @@ void wrap_children(std::vector<Internal::Function>& children,
     }
 }
 
-// TODO: Just get rid of this function, and do things using the function passing approach
-void wrap_reduction(
-    // Maps from output name -> Function
-    std::unordered_map<std::string, Internal::Function> loop_body,
-    // Maps from iteration 0 function name -> input name
-    std::unordered_map<std::string, std::string> first_iteration,
+std::unordered_map<std::string, Func> wrap_reduction(
+    std::function<std::unordered_map
+    <std::string, Func>(std::unordered_map < std::string, Func>
+                       ) > loop_body,
+    std::unordered_map<std::string, Func> first_iteration,
     const int& iterations
 ) {
-    std::unordered_map<std::string, Internal::Function> substitutions;
-    for (auto& output_pair : first_iteration) {
-        // On iteration 0 we want to substitute the base case,
-        // represented by output.first -> the output represented by that name
-        substitutions[output_pair.first] = loop_body[output_pair.second];
-    }
+    std::unordered_map<std::string, Func> inputs(first_iteration);
+    std::unordered_map<std::string, Func> output(loop_body(
+                first_iteration));
 
-    std::unordered_map<std::string, Internal::Function> old_children(loop_body);
-    std::unordered_map<std::string, Internal::Function> children;
     for (int i = 1; i < iterations; i++) {
-        children.clear();
+        std::unordered_map<std::string, Func> new_inputs;
 
-        std::map<Internal::FunctionPtr, Internal::FunctionPtr> copied_map;
-        for (auto& output : old_children) {
-            // What are we even doing with output_copy?
-            Func output_copy;
-            output.second.deep_copy(
-                output.first + "_iter" + std::to_string(i),
-                output_copy.function().get_contents(),
-                copied_map
-            );
-
-            for (auto& transitive_call : Internal::find_transitive_calls(
-                        output_copy.function())) {
-                if (copied_map.count(transitive_call.second.get_contents()) == 0) {
-                    std::cout << "don't see the point in copying " <<
-                              transitive_call.second.name() << " again" <<
-                              std::endl;
-                    copied_map[transitive_call.second.get_contents()] =
-                        transitive_call.second.get_contents();
-                }
+        for (auto input_pair : inputs) {
+            if (output.count(input_pair.first)) {
+                new_inputs[input_pair.first] = output[input_pair.first];
+            } else {
+                new_inputs[input_pair.first] = input_pair.second;
             }
-
-            std::cout << "children[" << output.first << "]: " << output_copy.name() <<
-                      std::endl;
-            //children[output.first] = output.second;
-            children[output.first] = output_copy.function();
         }
 
-        std::vector<Internal::Function> children_vec;
-        for (auto& child : children) {
-            children_vec.push_back(child.second);
-        }
-        wrap_children(children_vec, substitutions, i);
-
-        for (auto& output_pair : first_iteration) {
-            // On iteration i we want to substitute the last case,
-            // represented by output.first -> the output represented by that name
-            substitutions[output_pair.first] = children[output_pair.second];
-        }
-
-        old_children = children;
+        output = loop_body(new_inputs);
+        inputs = new_inputs;
     }
+
+    return output;
+}
+
+void print_func_dependencies(Internal::Function f) {
+    auto mp = Internal::find_direct_calls(f);
+    if (mp.empty()) {
+        std::cout << f.name() << " has no dependencies" << std::endl;
+    } else {
+        std::cout << f.name() << "depends on ";
+        for (auto& pair : mp) {
+            std::cout << pair.first << " ";
+        }
+        std::cout << std::endl;
+        for (auto& pair : mp) {
+            print_func_dependencies(pair.second);
+        }
+    }
+}
+
+std::unordered_map<std::string, Func> create_example(
+    std::unordered_map<std::string, Func> inp) {
+    Func a("a"), b("b"), e("e");
+    a() = inp["a"]();
+    b() = a() * a();
+    e() = b();
+
+    return {{"b", b}, {"a", e}};
 }
 
 Expr example_sphere(TupleVec<3> position) {
@@ -514,27 +506,13 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         loss() = 0.0f;
         loss() += loss_y(ry);
 
-        Func a("a"), b("b"), d("d"), e("e");
+        Func d("d");
         d() = 3.0f;
-        a() = d();
-        b() = a() * a();
-        e() = b();
+        auto mp = wrap_reduction(create_example, {{"a", d}}, 300);
+        print_func_dependencies(mp.at("a").function());
 
-        Func e_copy;
-        std::map< Internal::FunctionPtr, Internal::FunctionPtr > copy_map;
-        e.function().deep_copy("blah", e_copy.function().get_contents(),
-                               copy_map);
-        for (auto call : Internal::find_transitive_calls(e_copy.function())) {
-            std::cout << "call " << call.first << std::endl;
-        }
-
-        /*std::vector<Internal::Function> kids({e.function(), b.function()});
-        std::unordered_map<std::string, Internal::Function> subs({{std:: string("a"), d.function()}});
-        wrap_children(kids, subs, 0);*/
-        //wrap_reduction({{"e", e.function()}, {"a", a.function()}}, {{"d", "a"}}, 300);
-
-        Buffer<float> test = e.realize();
-        std::cout << "test is " << test() << std::endl;
+        //Buffer<float> test = e.realize();
+        //std::cout << "test is " << test() << std::endl;
 
         auto dr = propagate_adjoints(loss);
         Func dLoss_dSDF = dr(sdf_);
