@@ -1,6 +1,7 @@
 #include <iostream>
 #include <optional>
 #include <tuple>
+#include <string>
 
 #include "Halide.h"
 #include "gif.h"
@@ -190,6 +191,48 @@ void print_func_dependencies(Internal::Function f) {
     }
 }
 
+std::vector<Internal::Function> get_all_iterations(Func f) {
+    std::deque<Internal::Function> agenda;
+    agenda.clear();
+    agenda.push_back(f.function());
+
+    std::vector<Internal::Function> all_iterations;
+    all_iterations.push_back(f.function());
+
+    int iteration;
+    std::string base_name;
+    size_t mangle_index = f.name().find("$");
+    if (mangle_index != std::string::npos) {
+        iteration = std::stoi(f.name().substr(mangle_index + 1));
+        base_name = f.name().substr(0, mangle_index);
+        std::cout << "starting iteration is " << iteration << std::endl;
+        iteration--;
+    } else {
+        std::cout << "can't even find first iteration" << std::endl;
+        return all_iterations;
+    }
+
+    while (!agenda.empty()) {
+        Internal::Function item = agenda.front();
+        agenda.pop_front();
+        auto mp = Internal::find_direct_calls(item);
+        for (auto& child_entry : mp) {
+            std::string child_name = child_entry.first;
+            std::string iteration_name = base_name +
+                std::string("$") + std::to_string(iteration);
+            if (Internal::starts_with(child_name, iteration_name)) {
+                all_iterations.push_back(child_entry.second);
+                std::cout << "managed to find " << child_entry.first << std::endl;
+                iteration -= 1;
+            }
+
+            agenda.push_back(child_entry.second);
+        }
+    }
+
+    return all_iterations;
+}
+
 std::unordered_map<std::string, Func> create_example(
     std::unordered_map<std::string, Func> inp) {
     Func a("a"), b("b"), e("e");
@@ -307,6 +350,31 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
     void record(Func f) {
         _record(f, debug_, num_debug, initial_debug, current_debug);
+    }
+
+    void record(std::vector<Internal::Function>& funcs) {
+        Func mix(funcs.at(0).name());
+
+        Var C("C");
+        std::vector<Expr> args;
+        args.clear();
+        for (auto arg : funcs.at(0).args()) {
+            args.push_back(Expr(arg));
+        }
+
+        std::vector<Expr> pure(args);
+        pure.push_back(C);
+
+        mix(pure) = 0.0f;
+        for (auto func_it = funcs.begin();
+             func_it != funcs.end();
+             func_it++) {
+            std::vector<Expr> impure(args);
+            impure.push_back(Expr((int32_t) (func_it - funcs.begin())));
+            mix(impure) = Func(*func_it)(args);
+        }
+
+        record(mix);
     }
 
     Expr normal_pdf(Expr x, float sigma = 1e-7f, float mean = 0.0f) {
@@ -509,9 +577,14 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func d("d");
         d() = 3.0f;
         auto mp = wrap_reduction(create_example, {{"a", d}}, 300);
-        print_func_dependencies(mp.at("a").function());
+        //print_func_dependencies(mp.at("a").function());
+        Func final_a = mp.at("a");
+        Derivative der = propagate_adjoints(final_a);
+        Func da_dd = der(d);
+        apply_auto_schedule(da_dd);
+        auto all_iters = get_all_iterations(da_dd);
 
-        //Buffer<float> test = e.realize();
+        //Buffer<float> test = da_dd.realize();
         //std::cout << "test is " << test() << std::endl;
 
         auto dr = propagate_adjoints(loss);
