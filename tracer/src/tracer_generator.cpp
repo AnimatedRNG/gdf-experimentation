@@ -7,6 +7,7 @@
 
 #include "matmul.hpp"
 #include "recorder.hpp"
+#include "debug.hpp"
 #include "grid_sdf.hpp"
 #include "sobel.stub.h"
 #include "projection.stub.h"
@@ -144,9 +145,12 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Input<int32_t> width{"width"};
     Input<int32_t> height{"height"};
     Input<int32_t> initial_debug{"initial_debug"};
-    Output<Func> out_{"out", Float(32), 3};
-    Output<Func> debug_{"debug", UInt(8), 5};
+
+    Output<Func> out_ {"out", Float(32), 3};
+#ifdef DEBUG_TRACER
+    Output<Func> debug_ {"debug", UInt(8), 5};
     Output<Func> num_debug{"num_debug", Int(32), 1};
+#endif // DEBUG_TRACER
 
     std::shared_ptr<GridSDF> sb;
 
@@ -170,6 +174,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Func forward{"forward"};
 
     Func middle_func{"middle_func"};
+
+    Func dLoss_dSDF{"dLoss_dSDF"};
+    Derivative dr;
 
     std::map<std::string, std::vector<Func>> _tuplevec_unpacked;
 
@@ -216,7 +223,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     void record(Func f) {
+#ifdef DEBUG_TRACER
         _record(f, debug_, num_debug, initial_debug, current_debug);
+#endif //DEBUG_TRACER
     }
 
     void record(std::vector<Internal::Function>& funcs) {
@@ -367,21 +376,13 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Expr step("step");
         Func repacked_ray_vec = repack<3>(ray_vec);
 
-        //pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
-        //pos(x, y, 0) = original_ray_pos(x, y);
         pos(x, y, t) = repack<3>(original_ray_pos)(x, y);
         d = trilinear<1>(sdf, TupleVec<3>(Tuple(pos(x, y, tr))))[0];
         //d = example_box(TupleVec<3>(pos(x, y, tr)));
-        //d = 1.0f;
         ds = to_render_dist(d);
         step = 1.0f / 100.0f;
         pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
                              step * TupleVec<3>(repacked_ray_vec(x, y))).get();
-        /*pos(x, y, t) = Tuple(middle_func(x, y), middle_func(x, y), middle_func(x, y));
-        d = 1.0f / 90.0f;
-        ds = d;
-        pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
-        ds * TupleVec<3>(ray_vec(x, y))).get();*/
 
         Var xi, xo, yi, yo;
         dist(x, y, t) = 0.0f;
@@ -466,8 +467,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //Buffer<float> test = da_dd.realize();
         //std::cout << "test is " << test() << std::endl;
 
-        auto dr = propagate_adjoints(loss);
-        Func dLoss_dSDF = dr(sdf_);
+        dr = propagate_adjoints(loss);
+        dLoss_dSDF = dr(sdf_);
 
         Func backwards("backwards");
         //backwards(x, y) = {dLoss_dSDF(x, y, 50), 0.0f, 0.0f};
@@ -500,7 +501,10 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     void generate() {
+#ifdef DEBUG_TRACER
         debug_(i, t, x, y, c) = cast<uint8_t>(0);
+#endif //DEBUG_TRACER
+
         tr = RDom(0, iterations);
 
         /*GridSDF grid_sdf = to_grid_sdf(example_box,
@@ -527,7 +531,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         out_(x, y, 1) = end(y, x)[1];
         out_(x, y, 2) = end(y, x)[2];
 
+#ifdef DEBUG_TRACER
         num_debug(x) = Func(Expr(current_debug) + initial_debug)();
+#endif // DEBUG_TRACER
 
         if (/*auto_schedule*/ true) {
             sdf_.dim(0).set_bounds_estimate(0, 32)
@@ -546,13 +552,16 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             .estimate(y, 0, 1080)
             .estimate(c, 0, 3);
 
+#ifdef DEBUG_TRACER
             debug_
             .estimate(i, 0, current_debug)
             .estimate(t, 0, 300)
             .estimate(x, 0, 1920)
             .estimate(y, 0, 1080)
             .estimate(c, 0, 3);
+
             num_debug.estimate(x, 0, 1);
+#endif //DEBUG_TRACER
 
             //Pipeline p(std::vector<Func>({out_, debug_, num_debug}));
             //p.auto_schedule(this->get_target());
@@ -561,7 +570,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             options.gpu = get_target().has_gpu_feature();
             options.gpu_tile_channel = 1;
 
+#ifdef DEBUG_TRACER
             std::vector<Func> output_func({out_, debug_, num_debug});
+#else
+            std::vector<Func> output_func({out_});
+#endif // DEBUG_TRACER
             Halide::simple_autoschedule(
             output_func, {
                 {"sdf_.min.0", 0},
@@ -590,6 +603,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                     {0, 1080},
                     {0, 3}
                 },
+#ifdef DEBUG_TRACER
                 {
                     {0, current_debug},
                     {0, 300},
@@ -600,12 +614,13 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                 {
                     {0, 1}
                 }
+#endif //DEBUG_TRACER
             },
             options);
 
-            apply_auto_schedule(sb->buffer);
-            apply_auto_schedule(projection_);
-            apply_auto_schedule(view_);
+            //apply_auto_schedule(sb->buffer);
+            //apply_auto_schedule(projection_);
+            //apply_auto_schedule(view_);
         }
     }
 };

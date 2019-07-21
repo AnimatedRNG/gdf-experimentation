@@ -12,6 +12,7 @@
 #include "tracer_render.h"
 #include "sdf_gen.h"
 #include "read_sdf.hpp"
+#include "debug.hpp"
 
 using namespace Halide::Runtime;
 using namespace Halide::Tools;
@@ -91,8 +92,6 @@ int main() {
     //Buffer<float> p1(p1_matrix);
     Buffer<int32_t> n(n_matrix);
     Buffer<float> output(width, height, 3);
-    Buffer<uint8_t> debug(8, iterations, width, height, 4);
-    Buffer<int32_t> num_debug(1);
 
     projection.set_host_dirty();
     projection.copy_to_device(halide_cuda_device_interface());
@@ -117,21 +116,33 @@ int main() {
               << " ms"
               << std::endl;
 
+#ifdef DEBUG_TRACER
+    Buffer<uint8_t> debug(8, iterations, width, height, 4);
+    Buffer<int32_t> num_debug(1);
+#endif //DEBUG_TRACER
+
     start = std::chrono::steady_clock::now();
     tracer_render(projection, view,
                   sdf, p0, p1,
                   true,
                   width, height,
                   0,
-                  output, debug, num_debug);
+                  output
+#ifdef DEBUG_TRACER
+                  , debug, num_debug
+#endif //DEBUG_TRACER
+                 );
     end = std::chrono::steady_clock::now();
     diff = end - start;
 
     std::cout << "done with rendering; copying back now" << std::endl;
 
     output.copy_to_host();
+
+#ifdef DEBUG_TRACER
     debug.copy_to_host();
     num_debug.copy_to_host();
+#endif //DEBUG_TRACER
 
     std::cout
             << "tracing took "
@@ -139,7 +150,9 @@ int main() {
             << " ms"
             << std::endl;
 
+#ifdef DEBUG_TRACER
     write_gifs(debug, iterations, num_debug(0));
+#endif // DEBUG_TRACER
 
     convert_and_save_image(output, "test.png");
 }
