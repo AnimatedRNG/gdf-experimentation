@@ -24,6 +24,7 @@ namespace {
         Func h_p_x{"h_p_x"}, h_p_y{"h_p_y"}, h_p_z{"h_p_z"};
 
         Func sb{"sobel"};
+        Func sb_reg{"sobel"};
         Func sobel_norm{"sobel_norm"};
         Func sobel_normalized{"sobel_normalized"};
 
@@ -101,16 +102,15 @@ namespace {
             h_p_y = h_p(clamped, 1);
             h_p_z = h_p(clamped, 2);
 
-            sb(x, y, z, i) = {0.0f, 0.0f, 0.0f};
-            sb(x, y, z, 0) = {
+            sb(x, y, z) = {
                 h_p_x(x, y, z)* h_y(x, y, z)* h_z(x, y, z),
                 h_p_y(x, y, z)* h_z(x, y, z)* h_x(x, y, z),
                 h_p_z(x, y, z)* h_x(x, y, z)* h_y(x, y, z)
             };
-            sb(x, y, z, 1) = {
-                select(abs(sb(x, y, z, 0)[0]) < 1e-6f, 1e-6f, sb(x, y, z, 0)[0]),
-                select(abs(sb(x, y, z, 0)[1]) < 1e-6f, 1e-6f, sb(x, y, z, 0)[1]),
-                select(abs(sb(x, y, z, 0)[2]) < 1e-6f, 1e-6f, sb(x, y, z, 0)[2])
+            sb_reg(x, y, z) = {
+                select(abs(sb(x, y, z)[0]) < 1e-6f, 1e-6f, sb(x, y, z)[0]),
+                select(abs(sb(x, y, z)[1]) < 1e-6f, 1e-6f, sb(x, y, z)[1]),
+                select(abs(sb(x, y, z)[2]) < 1e-6f, 1e-6f, sb(x, y, z)[2])
             };
 
             intermediates.push_back(h_x);
@@ -121,10 +121,10 @@ namespace {
             intermediates.push_back(h_p_y);
             intermediates.push_back(h_p_z);
 
-            sobel_norm(x, y, z) = norm(sb(x, y, z, 1)) * -1.0f;
+            sobel_norm(x, y, z) = norm(sb_reg(x, y, z)) * -1.0f;
             intermediates.push_back(sobel_norm);
 
-            normals_(x, y, z) = (TupleVec<3>(sb(x, y, z, 1))
+            normals_(x, y, z) = (TupleVec<3>(sb_reg(x, y, z))
                                  / Expr(sobel_norm(x, y, z))).get();
 
             if (auto_schedule) {
@@ -145,7 +145,8 @@ namespace {
                 h_p_y.compute_at(sb, y);
                 h_p_z.compute_at(sb, z);
 
-                sb.compute_at(normals_, x);
+                sb.compute_at(sb_reg, x);
+                sb_reg.compute_at(normals_, x);
                 sobel_norm.compute_at(normals_, x);
                 normals_.compute_root();
 
