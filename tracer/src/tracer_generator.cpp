@@ -18,7 +18,7 @@
 
 using namespace Halide;
 
-constexpr static int iterations = 400;
+constexpr static int iterations = 900;
 
 Var x("x"), y("y"), c("c"), t("t");
 Var i("i");
@@ -124,7 +124,7 @@ Expr example_box(TupleVec<3> position) {
 }
 
 Expr to_render_dist(Expr dist, Expr scale_factor = Expr(1.0f)) {
-    return scale_factor /                                           \
+    return scale_factor /                                             \
            (10.0f + (1.0f - Halide::clamp(Halide::abs(dist), 0.0f, 1.0f)) * 90.0f);
     //return scale_factor / 10.0f;
 }
@@ -364,22 +364,24 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         Expr d("d");
         Expr ds("ds");
-
-        middle_func(x, y) = 1.0f;
+        Expr step("step");
+        Func repacked_ray_vec = repack<3>(ray_vec);
 
         //pos(x, y, t) = Tuple(0.0f, 0.0f, 0.0f);
         //pos(x, y, 0) = original_ray_pos(x, y);
-        //pos(x, y, t) = original_ray_pos(x, y);
-        //d = trilinear<1>(sdf, TupleVec<3>(Tuple(pos(x, y, tr))))[0];
+        pos(x, y, t) = repack<3>(original_ray_pos)(x, y);
+        d = trilinear<1>(sdf, TupleVec<3>(Tuple(pos(x, y, tr))))[0];
         //d = example_box(TupleVec<3>(pos(x, y, tr)));
-        //ds = to_render_dist(d);
-        ///pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
-        //                     ds * TupleVec<3>(ray_vec(x, y))).get();
-        pos(x, y, t) = Tuple(middle_func(x, y), middle_func(x, y), middle_func(x, y));
-        //pos(x, y, 0) = original_ray_pos(x, y);
-        d = 0.1f;
-        ds = 0.1f;
-        pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) * Expr(1.00f)).get();
+        //d = 1.0f;
+        ds = to_render_dist(d);
+        step = 1.0f / 100.0f;
+        pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
+                             step * TupleVec<3>(repacked_ray_vec(x, y))).get();
+        /*pos(x, y, t) = Tuple(middle_func(x, y), middle_func(x, y), middle_func(x, y));
+        d = 1.0f / 90.0f;
+        ds = d;
+        pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
+        ds * TupleVec<3>(ray_vec(x, y))).get();*/
 
         Var xi, xo, yi, yo;
         dist(x, y, t) = 0.0f;
@@ -416,17 +418,17 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                       TupleVec<3>(
                                           normal_evaluation_position(x, y, t)))).get();
 
-        //forward(x, y) = volumetric_shaded(x, y, iterations - 1);
-        //forward(x, y) = repack<3>(pos)(x, y, iterations - 1);
-        forward(x, y) = repack<3>(pos)(x, y, iterations);
+        forward(x, y) = volumetric_shaded(x, y, iterations);
+        //forward(x, y) = repack<3>(pos)(x, y, iterations);
+        //forward(x, y) = repack<3>(pos)(x, y, iterations);
 
-        record(pos);
+        /*record(pos);
         record(intensity);
         record(dist);
         record(normals_debug);
         record(g_d);
         record(opc);
-        record(volumetric_shaded);
+        record(volumetric_shaded);*/
 
         return forward;
     }
@@ -465,25 +467,32 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //std::cout << "test is " << test() << std::endl;
 
         auto dr = propagate_adjoints(loss);
-        //Func dLoss_dSDF = dr(sdf_);
+        Func dLoss_dSDF = dr(sdf_);
 
         Func backwards("backwards");
         //backwards(x, y) = {dLoss_dSDF(x, y, 50), 0.0f, 0.0f};
         Func de("de");
         /*de(x, y, c) = {
-            select(dLoss_dSDF(x, y, c) != 0.0f, 1.0f, 0.0f),
-            select(dLoss_dSDF(x, y, c) != 0.0f, 1.0f, 0.0f),
-            select(dLoss_dSDF(x, y, c) != 0.0f, 1.0f, 0.0f)
+            select(Halide::abs(dLoss_dSDF(x, y, c)) >= 1e-9f, 1.0f, 0.0f),
+            select(Halide::abs(dLoss_dSDF(x, y, c)) >= 1e-9f, 1.0f, 0.0f),
+            select(Halide::abs(dLoss_dSDF(x, y, c)) >= 1e-9f, 1.0f, 0.0f)
             };*/
-        /*de(x, y, c) = {select(dr(get_packed("pos", 0))(x, y, c) != 0.0f, 1.0f, 0.0f),
-                       select(dr(get_packed("pos", 1))(x, y, c) != 0.0f, 1.0f, 0.0f),
-                       select(dr(get_packed("pos", 2))(x, y, c) != 0.0f, 1.0f, 0.0f)
+        de(x, y, c) = {
+            Halide::log(abs(dLoss_dSDF(x, y, c))) / -1e2f,
+            Halide::log(abs(dLoss_dSDF(x, y, c))) / -1e2f,
+            Halide::log(abs(dLoss_dSDF(x, y, c))) / -1e2f,
+        };
+        /*de(x, y, c) = {select(dr(get_packed("ray_pos$1", 0))(x, y) > 1e-2f, 1.0f, 0.0f),
+                       select(dr(get_packed("ray_pos$1", 1))(x, y) > 1e-2f, 1.0f, 0.0f),
+                       select(dr(get_packed("ray_pos$1", 2))(x, y) > 1e-2f, 1.0f, 0.0f)
                        };*/
-        de(x, y, c) = {dr(middle_func)(x, y), dr(middle_func)(x, y), dr(middle_func)(x, y)};
-        backwards(x, y) = de(x, y, iterations);
+        /*de(x, y, c) = {dr(get_packed("ray_vec$1", 0))(x, y),
+                       dr(get_packed("ray_vec$1", 1))(x, y),
+                       dr(get_packed("ray_vec$1", 2))(x, y)};*/
+        backwards(x, y) = de(x, y, 50);
 
         Func debug_gradient("debug_gradient");
-        debug_gradient(x, y, c) = de(x, y, cast<int32_t>((c / 400.0f) * 128.0f));
+        debug_gradient(x, y, c) = de(x, y, cast<int32_t>((c / 900.0f) * 128.0f));
         record(debug_gradient);
         //print_func(debug_gradient);
 

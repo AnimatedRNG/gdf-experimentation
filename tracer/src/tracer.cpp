@@ -1,5 +1,6 @@
 #include <iostream>
 #include <chrono>
+#include <math.h>
 
 #include "HalideBuffer.h"
 #include "halide_image_io.h"
@@ -19,7 +20,7 @@ void write_gifs(
     Buffer<uint8_t> buf,
     int iterations,
     int num_gifs = 1,
-    float delay = 0.0001f) {
+    float delay = 0.000001f) {
 
     int width = buf.dim(2).max() + 1;
     int height = buf.dim(3).max() + 1;
@@ -66,21 +67,20 @@ int main() {
     };
 
     const int32_t n_matrix[3] = {
-        32, 32, 32
+        128, 128, 128
     };
-    //int n_matrix[3];
 
-    int width = 150;
-    int height = 150;
-    int iterations = 400;
+    int width = 128;
+    int height = 128;
+    int iterations = 900;
 
+    //float p0_x, p0_y, p0_z, p1_x, p1_y, p1_z;
     float p0_matrix[3];
     float p1_matrix[3];
-    /*Buffer<float> lucy = read_sdf("bunny.sdf",
+    /*Buffer<float> lucy = read_sdf("lucy.sdf",
                                   p0_matrix[0], p0_matrix[1], p0_matrix[2],
                                   p1_matrix[0], p1_matrix[1], p1_matrix[2],
-                                  n_matrix[0], n_matrix[1], n_matrix[2],
-                                  true, true, 10.0f);*/
+                                  true, true, 4.0f);*/
 
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);
@@ -89,10 +89,9 @@ int main() {
     Buffer<float> p1(3);
     //Buffer<float> p0(p0_matrix);
     //Buffer<float> p1(p1_matrix);
-    //Buffer<int32_t> n(n_matrix);
     Buffer<int32_t> n(n_matrix);
     Buffer<float> output(width, height, 3);
-    Buffer<uint8_t> debug(10, iterations, width, height, 4);
+    Buffer<uint8_t> debug(8, iterations, width, height, 4);
     Buffer<int32_t> num_debug(1);
 
     projection.set_host_dirty();
@@ -139,12 +138,6 @@ int main() {
             << std::chrono::duration <float, std::milli> (diff).count()
             << " ms"
             << std::endl;
-
-    for (int x = 0; x < width; x++) {
-        for (int y = 0; y < height; y++) {
-            std::cout << output(x, y, 0) << std::endl;
-        }
-    }
 
     write_gifs(debug, iterations, num_debug(0));
 
