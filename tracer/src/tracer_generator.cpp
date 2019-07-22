@@ -153,29 +153,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Output<Func> num_debug{"num_debug", Int(32), 1};
 #endif // DEBUG_TRACER
 
-    std::shared_ptr<GridSDF> sb;
-
-    Func original_ray_pos{"original_ray_pos"};
-    Func ray_vec{"ray_vec"};
-    Func origin{"origin"};
-
-    Func pos{"pos"};
-    Func dist{"dist"};
-    Func dist_render{"dist_render"};
-
-    Func normal_evaluation_position{"normal_evaluation_position"};
-    Func g_d{"g_d"};
-
-    Func intensity{"intensity"};
-
-    Func opc{"opc"};
-
-    Func volumetric_shaded{"volumetric_shaded"};
-    Func normals_debug{"normals_debug"};
-    Func forward{"forward"};
+    std::unordered_map<std::string, std::shared_ptr<GridSDF>> sb;
 
     Func middle_func{"middle_func"};
 
+    Func model_transform{"identity"};
     Func dLoss_dSDF{"dLoss_dSDF"};
     Derivative dr;
 
@@ -352,17 +334,38 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                )));
     }
 
-    void call_sobel(GridSDF sdf) {
+    void call_sobel(const std::string& name, GridSDF sdf) {
         Func sb_func = sobel::generate(Halide::GeneratorContext(this->get_target(),
                                        true),
         {sdf.buffer, sdf.n[0], sdf.n[1], sdf.n[2]});
 
-        this->sb = std::shared_ptr<GridSDF>(new GridSDF(sb_func, sdf.p0, sdf.p1,
+        this->sb[name] = std::shared_ptr<GridSDF>(new GridSDF(sb_func, sdf.p0, sdf.p1,
                                             sdf.n));
     }
 
-    Func forward_pass(const GridSDF& sdf,
+    Func forward_pass(std::string name,
+                      const GridSDF& sdf,
+                      Func ray_transform,
                       float EPS = 1e-6f) {
+        Func original_ray_pos("original_ray_pos_" + name);
+        Func ray_vec("ray_vec_" + name);
+        Func origin("origin_" + name);
+
+        Func pos("pos_" + name);
+        Func dist("dist_" + name);
+        Func dist_render("dist_render_" + name);
+
+        Func normal_evaluation_position("normal_evaluation_position_" + name);
+        Func g_d("g_d_" + name);
+
+        Func intensity("intensity_" + name);
+
+        Func opc("opc_" + name);
+
+        Func volumetric_shaded("volumetric_shaded_" + name);
+        Func normals_debug("normals_debug_" + name);
+        Func forward("forward_" + name);
+
         auto outputs = projection::generate(Halide::GeneratorContext(this->get_target(),
                                             true),
         {projection_, view_, width, height});
@@ -370,14 +373,21 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         ray_vec = outputs.ray_vec;
         origin = outputs.origin;
 
-        call_sobel(sdf);
+        call_sobel(name, sdf);
 
-        Expr d("d");
-        Expr ds("ds");
-        Expr step("step");
+        Expr d("d_" + name);
+        Expr ds("ds_" + name);
+        Expr step("step_" + name);
         Func repacked_ray_vec = repack<3>(ray_vec);
 
-        pos(x, y, t) = repack<3>(original_ray_pos)(x, y);
+        Func transformed_ray_pos("transformed_ray_pos_" + name);
+        transformed_ray_pos(x, y) = {
+            original_ray_pos(x, y)[0] + ray_transform(0),
+            original_ray_pos(x, y)[1] + ray_transform(1),
+            original_ray_pos(x, y)[2] + ray_transform(2)
+        };
+
+        pos(x, y, t) = repack<3>(transformed_ray_pos)(x, y);
         d = trilinear<1>(sdf, TupleVec<3>(Tuple(pos(x, y, tr))))[0];
         //d = example_box(TupleVec<3>(pos(x, y, tr)));
         ds = to_render_dist(d);
@@ -398,7 +408,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         g_d(x, y, t) = normal_pdf_rectified(dist(x, y, t));
 
         intensity(x, y, t) = shade(normal_evaluation_position, {origin(0), origin(1), origin(2)},
-                                   *sb)(x, y, t);
+                                   *(sb[name]))(x, y, t);
 
         opc(x, y, t) = 0.0f;
         opc(x, y, tr + 1) = opc(x, y, tr) + g_d(x, y, tr) * dist_render(x, y, tr);
@@ -406,7 +416,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         float u_s = 1.0f;
         float k = -1.0f;
 
-        Expr scattering("scattering");
+        Expr scattering("scattering_" + name);
         scattering = g_d(x, y, tr) * u_s;
 
         volumetric_shaded(x, y, t) = {0.0f, 0.0f, 0.0f};
@@ -416,36 +426,36 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
              TupleVec<3>(intensity(x, y, tr)) * Expr(dist_render(x, y, tr))).get();
 
         normals_debug(x, y, t) = (trilinear<3>(
-                                      *sb,
+                                               *(sb[name]),
                                       TupleVec<3>(
                                           normal_evaluation_position(x, y, t)))).get();
 
         forward(x, y) = {
-            clamp(volumetric_shaded(y, x, iterations)[0], 0.0f, 1.0f),
-            clamp(volumetric_shaded(y, x, iterations)[1], 0.0f, 1.0f),
-            clamp(volumetric_shaded(y, x, iterations)[2], 0.0f, 1.0f)
+            clamp(volumetric_shaded(x, y, iterations)[0], 0.0f, 1.0f),
+            clamp(volumetric_shaded(x, y, iterations)[1], 0.0f, 1.0f),
+            clamp(volumetric_shaded(x, y, iterations)[2], 0.0f, 1.0f)
         };
         //forward(x, y) = repack<3>(pos)(x, y, iterations);
 
-        /*record(pos);
+        record(pos);
         record(intensity);
         record(dist);
         record(normals_debug);
         record(g_d);
         record(opc);
-        record(volumetric_shaded);*/
+        record(volumetric_shaded);
 
         return forward;
     }
 
-    Func backwards_pass(GridSDF sdf, Func forward, float EPS = 1e-6f) {
+    Func backwards_pass(GridSDF sdf, Func forward, Func target, float EPS = 1e-6f) {
         Func loss_xyc("loss_xyc");
         Func loss_xy("loss_xy");
         Func loss_y("loss_y");
         Func loss("loss");
         RDom rx(0, width);
         RDom ry(0, height);
-        loss_xyc(x, y) = (1.0f - TupleVec<3>(forward(x, y))).get();
+        loss_xyc(x, y) = (TupleVec<3>(target(x, y)) - TupleVec<3>(forward(x, y))).get();
         loss_xy(x, y) = norm(repack<3>(loss_xyc)(x, y));
         loss_y(y) = 0.0f;
         loss_y(y) += loss_xy(rx, y);
@@ -496,11 +506,30 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         Func end("end");
 
-        Func fw_pass = forward_pass(grid_sdf);
+        model_transform(x) = 0.0f;
+
+        Func target_transform("target_transform");
+        target_transform(x) = 0.0f;
+        target_transform(0) = 1.0f;
+        target_transform(1) = 2.0f;
+        target_transform(2) = -3.0f;
+
+        Func fw_pass = forward_pass("model", grid_sdf, model_transform);
+
+        GridSDF target_sdf = to_grid_sdf(example_sphere,
+        {-4.0f, -4.0f, -4.0f},
+        {4.0f, 4.0f, 4.0f}, 128, 128, 128);
+
+        Func target = forward_pass("target", target_sdf, target_transform);
 
         // controls forward vs backwards pass
         //end(x, y) = fw_pass(x, y);
-        end(x, y) = backwards_pass(grid_sdf, fw_pass)(x, y, 0);
+        end(x, y) = backwards_pass(grid_sdf, fw_pass, target)(x, y, 0);
+
+        // optimizing
+        for (int epoch = 0; epoch < 100; epoch++) {
+
+        }
 
         // flip image and RGB -> BGR to match OpenCV's output
         /*out_(x, y, c) = 0.0f;
@@ -550,6 +579,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             Halide::SimpleAutoscheduleOptions options;
             options.gpu = get_target().has_gpu_feature();
             options.gpu_tile_channel = 1;
+            options.unroll_rvar_size = 100;
 
 #ifdef DEBUG_TRACER
             std::vector<Func> output_func({out_, debug_, num_debug});
@@ -603,7 +633,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             //print_func_dependencies(dr.funcs(sb->buffer).at(0).function());
 
             // sets every dependency to compute_root its ancestor
-            apply_auto_schedule(sb->buffer);
+            for (auto entry : sb) {
+                apply_auto_schedule(entry.second->buffer);
+            }
             apply_auto_schedule(projection_);
             apply_auto_schedule(view_);
         }
