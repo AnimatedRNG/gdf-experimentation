@@ -340,7 +340,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         {sdf.buffer, sdf.n[0], sdf.n[1], sdf.n[2]});
 
         this->sb[name] = std::shared_ptr<GridSDF>(new GridSDF(sb_func, sdf.p0, sdf.p1,
-                                            sdf.n));
+                         sdf.n));
     }
 
     Func forward_pass(std::string name,
@@ -426,7 +426,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
              TupleVec<3>(intensity(x, y, tr)) * Expr(dist_render(x, y, tr))).get();
 
         normals_debug(x, y, t) = (trilinear<3>(
-                                               *(sb[name]),
+                                      *(sb[name]),
                                       TupleVec<3>(
                                           normal_evaluation_position(x, y, t)))).get();
 
@@ -437,13 +437,13 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         };
         //forward(x, y) = repack<3>(pos)(x, y, iterations);
 
-        record(pos);
+        /*record(pos);
         record(intensity);
         record(dist);
         record(normals_debug);
         record(g_d);
-        record(opc);
-        record(volumetric_shaded);
+        record(opc);*/
+        //record(volumetric_shaded);
 
         return forward;
     }
@@ -473,11 +473,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             select(Halide::abs(dLoss_dSDF(x, y, c)) >= 1e-9f, 1.0f, 0.0f),
             select(Halide::abs(dLoss_dSDF(x, y, c)) >= 1e-9f, 1.0f, 0.0f)
             };*/
-        de(x, y, c) = {
+        /*de(x, y, c) = {
             Halide::log(abs(dLoss_dSDF(x, y, c))) / -1e2f,
             Halide::log(abs(dLoss_dSDF(x, y, c))) / -1e2f,
             Halide::log(abs(dLoss_dSDF(x, y, c))) / -1e2f,
-        };
+            };*/
         /*de(x, y, c) = {select(dr(get_packed("ray_pos$1", 0))(x, y) > 1e-2f, 1.0f, 0.0f),
                        select(dr(get_packed("ray_pos$1", 1))(x, y) > 1e-2f, 1.0f, 0.0f),
                        select(dr(get_packed("ray_pos$1", 2))(x, y) > 1e-2f, 1.0f, 0.0f)
@@ -485,11 +485,12 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         /*de(x, y, c) = {dr(get_packed("ray_vec$1", 0))(x, y),
                        dr(get_packed("ray_vec$1", 1))(x, y),
                        dr(get_packed("ray_vec$1", 2))(x, y)};*/
-        backwards(x, y, c) = de(x, y, c);
+        //backwards(x, y, c) = de(x, y, c);
+        backwards(x, y, c) = dLoss_dSDF(x, y, c);
 
-        Func debug_gradient("debug_gradient");
+        /*Func debug_gradient("debug_gradient");
         debug_gradient(x, y, c) = de(x, y, cast<int32_t>((c / 900.0f) * 128.0f));
-        record(debug_gradient);
+        record(debug_gradient);*/
         //print_func(debug_gradient);
 
         return backwards;
@@ -499,6 +500,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 #ifdef DEBUG_TRACER
         debug_(i, t, x, y, c) = cast<uint8_t>(0);
 #endif //DEBUG_TRACER
+        sb = std::unordered_map<std::string, std::shared_ptr<GridSDF>>();
 
         tr = RDom(0, iterations);
 
@@ -512,11 +514,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         target_transform(x) = 0.0f;
         target_transform(0) = 1.0f;
         target_transform(1) = 2.0f;
-        target_transform(2) = -3.0f;
+        target_transform(2) = 3.0f;
 
-        Func fw_pass = forward_pass("model", grid_sdf, model_transform);
-
-        GridSDF target_sdf = to_grid_sdf(example_sphere,
+        GridSDF target_sdf = to_grid_sdf(example_box,
         {-4.0f, -4.0f, -4.0f},
         {4.0f, 4.0f, 4.0f}, 128, 128, 128);
 
@@ -524,12 +524,26 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         // controls forward vs backwards pass
         //end(x, y) = fw_pass(x, y);
-        end(x, y) = backwards_pass(grid_sdf, fw_pass, target)(x, y, 0);
+        //end(x, y) = gradient(x, y, 10);
+
+        Func fw_pass = forward_pass("model",
+                                    grid_sdf,
+                                    model_transform);
 
         // optimizing
-        for (int epoch = 0; epoch < 100; epoch++) {
+        float lr = 1e-1f;
+        Func optimization("optimization");
+        optimization(x, y, c) = {0.0f, 0.0f, 0.0f};
+        for (int epoch = 0; epoch < 128; epoch++) {
+            Func new_sdf("new_sdf_" + std::to_string(epoch));
+            Func gradient("gradient" + std::to_string(epoch));
+            gradient(x, y, c) = backwards_pass(grid_sdf, fw_pass, target)(x, y, c);
+            new_sdf(x, y, c) = grid_sdf.buffer(x, y, c) - gradient(x, y, c) * lr;
+            optimization(x, y, epoch) = fw_pass(x, y);
 
+            grid_sdf.buffer = new_sdf;
         }
+        record(optimization);
 
         // flip image and RGB -> BGR to match OpenCV's output
         /*out_(x, y, c) = 0.0f;
@@ -537,9 +551,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         out_(x, y, 1) = clamp(end(y, x)[1], 0.0f, 1.0f);
         out_(x, y, 2) = clamp(end(y, x)[0], 0.0f, 1.0f);*/
         out_(x, y, c) = 0.0f;
-        out_(x, y, 0) = end(y, x)[0];
-        out_(x, y, 1) = end(y, x)[1];
-        out_(x, y, 2) = end(y, x)[2];
+        //out_(x, y, 0) = end(y, x)[0];
+        //out_(x, y, 1) = end(y, x)[1];
+        //out_(x, y, 2) = end(y, x)[2];
 
 #ifdef DEBUG_TRACER
         num_debug(x) = Func(Expr(current_debug) + initial_debug)();
@@ -579,7 +593,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             Halide::SimpleAutoscheduleOptions options;
             options.gpu = get_target().has_gpu_feature();
             options.gpu_tile_channel = 1;
-            options.unroll_rvar_size = 100;
+            options.unroll_rvar_size = 10;
 
 #ifdef DEBUG_TRACER
             std::vector<Func> output_func({out_, debug_, num_debug});
