@@ -420,7 +420,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                       TupleVec<3>(
                                           normal_evaluation_position(x, y, t)))).get();
 
-        forward(x, y) = volumetric_shaded(x, y, iterations);
+        forward(x, y) = {
+            clamp(volumetric_shaded(y, x, iterations)[0], 0.0f, 1.0f),
+            clamp(volumetric_shaded(y, x, iterations)[1], 0.0f, 1.0f),
+            clamp(volumetric_shaded(y, x, iterations)[2], 0.0f, 1.0f)
+        };
         //forward(x, y) = repack<3>(pos)(x, y, iterations);
 
         /*record(pos);
@@ -471,7 +475,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         /*de(x, y, c) = {dr(get_packed("ray_vec$1", 0))(x, y),
                        dr(get_packed("ray_vec$1", 1))(x, y),
                        dr(get_packed("ray_vec$1", 2))(x, y)};*/
-        backwards(x, y) = de(x, y, 50);
+        backwards(x, y, c) = de(x, y, c);
 
         Func debug_gradient("debug_gradient");
         debug_gradient(x, y, c) = de(x, y, cast<int32_t>((c / 900.0f) * 128.0f));
@@ -488,20 +492,15 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         tr = RDom(0, iterations);
 
-        /*GridSDF grid_sdf = to_grid_sdf(example_box,
-        {-4.0f, -4.0f, -4.0f},
-        {4.0f, 4.0f, 4.0f}, 128, 128, 128);*/
         GridSDF grid_sdf = create_grid_sdf();
 
         Func end("end");
-        /*end(x, y) =
-            select(backwards_, backwards_pass(grid_sdf, forward_pass(grid_sdf))(x, y),
-            forward_pass(grid_sdf)(x, y))*/
+
         Func fw_pass = forward_pass(grid_sdf);
 
         // controls forward vs backwards pass
         //end(x, y) = fw_pass(x, y);
-        end(x, y) = backwards_pass(grid_sdf, fw_pass)(x, y);
+        end(x, y) = backwards_pass(grid_sdf, fw_pass)(x, y, 0);
 
         // flip image and RGB -> BGR to match OpenCV's output
         /*out_(x, y, c) = 0.0f;
