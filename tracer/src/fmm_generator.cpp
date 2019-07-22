@@ -42,14 +42,13 @@ class FMMGenerator : public Halide::Generator<FMMGenerator> {
                                     level_set_max(x, y, z) >= 0.0f,
                                     1, 0);
 
+        // each iteration, we consider our neighbors
         Func considered("considered");
         considered(x, y, z, t) = level_set(x, y, z);
 
-        // each iteration, we consider our neighbors
         considered(x, y, z, it + 1) =
             cast<int32_t>(
-                maximum(r, considered(x + r.x, y + r.y, z + r.z, it)));
-
+            maximum(r, considered(x + r.x, y + r.y, z + r.z, it)));
 
         // select the cells which will be occupied next iteration
         Func next_iter("next_iter");

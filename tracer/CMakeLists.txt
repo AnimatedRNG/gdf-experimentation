@@ -42,13 +42,13 @@ halide_library_from_generator(sdf_gen
                               HALIDE_TARGET_FEATURES cuda
 )
 
-halide_generator(fmm_gen.generator SRCS src/fmm_generator.cpp)
-halide_library_from_generator(fmm_gen
-                              GENERATOR fmm_gen.generator
-                              #GENERATOR_ARGS auto_schedule=true
-                              EXTRA_OUTPUTS schedule
-                              HALIDE_TARGET_FEATURES cuda
-)
+#halide_generator(fmm_gen.generator SRCS src/fmm_generator.cpp)
+#halide_library_from_generator(fmm_gen
+#                              GENERATOR fmm_gen.generator
+#                              #GENERATOR_ARGS auto_schedule=true
+#                              EXTRA_OUTPUTS schedule
+#                              HALIDE_TARGET_FEATURES cuda
+#)
 
 halide_generator(tracer_render.generator
                  SRCS src/tracer_generator.cpp
@@ -62,14 +62,14 @@ halide_library_from_generator(tracer_render
                               HALIDE_TARGET_FEATURES cuda profile
 )
 
-add_executable(fmm_test src/fmm_test.cpp)
-set_target_properties(fmm_test PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-target_include_directories(fmm_test PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}")
+#add_executable(fmm_test src/fmm_test.cpp)
+#set_target_properties(fmm_test PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+#target_include_directories(fmm_test PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}")
 
-target_link_libraries(fmm_test PUBLIC
-                               ${CMAKE_THREAD_LIBS_INIT}
-                               sdf_gen
-                               fmm_gen)
+#target_link_libraries(fmm_test PUBLIC
+#                               ${CMAKE_THREAD_LIBS_INIT}
+#                               sdf_gen
+#                               fmm_gen)
 
 target_link_libraries(tracer PUBLIC
                              ${CMAKE_THREAD_LIBS_INIT}
