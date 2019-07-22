@@ -67,6 +67,13 @@ int main() {
         {-0.3166, 1.1503, 8.8977, 1.0}
     };
 
+    const float model_translation_[3] = {
+        0.0f, 0.0f, 0.0f
+    };
+    const float target_translation_[3] = {
+        1.0f, 2.0f, 3.0f
+    };
+
     const int32_t n_matrix[3] = {
         128, 128, 128
     };
@@ -85,13 +92,17 @@ int main() {
 
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);
-    Buffer<float> sdf(n_matrix[0], n_matrix[1], n_matrix[2]);
+    Buffer<float> sdf_model(n_matrix[0], n_matrix[1], n_matrix[2]);
+    Buffer<float> sdf_target(n_matrix[0], n_matrix[1], n_matrix[2]);
     Buffer<float> p0(3);
     Buffer<float> p1(3);
-    //Buffer<float> p0(p0_matrix);
-    //Buffer<float> p1(p1_matrix);
     Buffer<int32_t> n(n_matrix);
-    Buffer<float> output(width, height, 3);
+    Buffer<float> forward_(width, height, 3);
+    Buffer<float> d_l_sdf_(n_matrix[0], n_matrix[1], n_matrix[2]);
+    Buffer<float> d_l_translation_(3);
+
+    Buffer<float> model_translation(model_translation_);
+    Buffer<float> target_translation(target_translation_);
 
     projection.set_host_dirty();
     projection.copy_to_device(halide_cuda_device_interface());
@@ -99,14 +110,18 @@ int main() {
     view.set_host_dirty();
     view.copy_to_device(halide_cuda_device_interface());
 
-    sdf.set_host_dirty();
-    sdf.copy_to_device(halide_cuda_device_interface());
+    sdf_model.set_host_dirty();
+    sdf_model.copy_to_device(halide_cuda_device_interface());
+
+    sdf_target.set_host_dirty();
+    sdf_target.copy_to_device(halide_cuda_device_interface());
 
     p0.set_host_dirty();
     p1.copy_to_device(halide_cuda_device_interface());
 
     auto start = std::chrono::steady_clock::now();
-    sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], sdf, p0, p1);
+    sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], sdf_model, p0, p1);
+    sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], sdf_target, p0, p1);
 
     auto end = std::chrono::steady_clock::now();
 
@@ -122,12 +137,10 @@ int main() {
 #endif //DEBUG_TRACER
 
     start = std::chrono::steady_clock::now();
-    tracer_render(projection, view,
-                  sdf, p0, p1,
-                  true,
-                  width, height,
-                  0,
-                  output
+    tracer_render(projection, view, model_translation,
+                  sdf_model, p0, p1,
+                  width, height, 0,
+                  forward_, d_l_sdf_, d_l_translation_
 #ifdef DEBUG_TRACER
                   , debug, num_debug
 #endif //DEBUG_TRACER
@@ -137,7 +150,13 @@ int main() {
 
     std::cout << "done with rendering; copying back now" << std::endl;
 
-    output.copy_to_host();
+    forward_.copy_to_host();
+    d_l_sdf_.copy_to_host();
+    d_l_translation_.copy_to_host();
+
+    std::cout << "d_l_translation " << d_l_translation_(0) << " "
+              << d_l_translation_(1) << " "
+              << d_l_translation_(2) << std::endl;
 
 #ifdef DEBUG_TRACER
     debug.copy_to_host();
@@ -154,5 +173,5 @@ int main() {
     write_gifs(debug, iterations, num_debug(0));
 #endif // DEBUG_TRACER
 
-    convert_and_save_image(output, "test.png");
+    convert_and_save_image(forward_, "test.png");
 }

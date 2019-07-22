@@ -12,6 +12,8 @@
 
 using namespace Halide;
 
+typedef std::unordered_map<std::string, Func> parameter_map;
+
 void wrap_children(std::vector<Internal::Function>& children,
                    std::unordered_map<std::string, Internal::Function>& substitutions,
                    const int& iteration) {
