@@ -8,6 +8,7 @@
 #include "matmul.hpp"
 #include "recorder.hpp"
 #include "debug.hpp"
+#include "utils.hpp"
 #include "grid_sdf.hpp"
 #include "sobel.stub.h"
 #include "projection.stub.h"
@@ -421,7 +422,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         forward(x, y) = volumetric_shaded(x, y, iterations);
         //forward(x, y) = repack<3>(pos)(x, y, iterations);
-        //forward(x, y) = repack<3>(pos)(x, y, iterations);
 
         /*record(pos);
         record(intensity);
@@ -447,25 +447,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         loss_y(y) += loss_xy(rx, y);
         loss() = 0.0f;
         loss() += loss_y(ry);
-
-        /*Func a("a"), b("b"), d("d");
-        RDom z(0, 3);
-        d() = 5.0f;
-        a(x) = d();
-        a(z + 1) = a(z) * 2.0f;
-        // b() = a(3) = a(2) * 5 = (a(1) * 5) * 5 = ((a(0) * 5) * 5) * 5 = 375
-        // db/da(0) = ((1 * 5) * 5) * 5 = 125
-        b() = a(3);
-
-        Func dbdd = propagate_adjoints(b)(d);
-
-        Buffer<float> test = b.realize();
-        std::cout << "test is " << test() << std::endl;
-        Buffer<float> deriv = dbdd.realize();
-        std::cout << "dbda is " << deriv() << std::endl;*/
-
-        //Buffer<float> test = da_dd.realize();
-        //std::cout << "test is " << test() << std::endl;
 
         dr = propagate_adjoints(loss);
         dLoss_dSDF = dr(sdf_);
@@ -518,6 +499,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             forward_pass(grid_sdf)(x, y))*/
         Func fw_pass = forward_pass(grid_sdf);
 
+        // controls forward vs backwards pass
         //end(x, y) = fw_pass(x, y);
         end(x, y) = backwards_pass(grid_sdf, fw_pass)(x, y);
 
@@ -575,6 +557,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 #else
             std::vector<Func> output_func({out_});
 #endif // DEBUG_TRACER
+            // applies simple GPU autoschedule to everything
             Halide::simple_autoschedule(
             output_func, {
                 {"sdf_.min.0", 0},
@@ -618,9 +601,12 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             },
             options);
 
-            //apply_auto_schedule(sb->buffer);
-            //apply_auto_schedule(projection_);
-            //apply_auto_schedule(view_);
+            //print_func_dependencies(dr.funcs(sb->buffer).at(0).function());
+
+            // sets every dependency to compute_root its ancestor
+            apply_auto_schedule(sb->buffer);
+            apply_auto_schedule(projection_);
+            apply_auto_schedule(view_);
         }
     }
 };

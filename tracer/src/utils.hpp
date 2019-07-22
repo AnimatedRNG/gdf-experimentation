@@ -78,20 +78,29 @@ std::unordered_map<std::string, Func> wrap_reduction(
     return output;
 }
 
-void print_func_dependencies(Internal::Function f) {
+inline void _print_func_dependencies(Internal::Function f,
+                              std::unordered_map<std::string, Internal::Function>& seen) {
     auto mp = Internal::find_direct_calls(f);
+    seen[f.name()] = f;
     if (mp.empty()) {
         std::cout << f.name() << " has no dependencies" << std::endl;
     } else {
-        std::cout << f.name() << "depends on ";
+        std::cout << f.name() << " depends on ";
         for (auto& pair : mp) {
             std::cout << pair.first << " ";
         }
         std::cout << std::endl;
         for (auto& pair : mp) {
-            print_func_dependencies(pair.second);
+            if (seen.count(pair.first) == 0) {
+                _print_func_dependencies(pair.second, seen);
+            }
         }
     }
+}
+
+inline void print_func_dependencies(Internal::Function f) {
+    std::unordered_map<std::string, Internal::Function> seen;
+    _print_func_dependencies(f, seen);
 }
 
 std::vector<Internal::Function> get_all_iterations(Func f) {

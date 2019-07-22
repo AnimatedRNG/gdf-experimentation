@@ -51,7 +51,7 @@ halide_library_from_generator(tracer_render
                               GENERATOR_DEPS sobel.generator projection.generator
                               #GENERATOR_ARGS auto_schedule=true
                               EXTRA_OUTPUTS schedule
-                              HALIDE_TARGET_FEATURES cuda
+                              HALIDE_TARGET_FEATURES cuda profile
 )
 
 target_link_libraries(tracer PUBLIC
