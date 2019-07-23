@@ -4,8 +4,6 @@
 
 using namespace Halide;
 
-#define DEBUG_TRACER
-
 inline void _record(Func f,
                     GeneratorOutput<Func>& debug_,
                     GeneratorOutput<Func>& num_debug,
