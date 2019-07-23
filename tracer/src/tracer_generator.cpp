@@ -23,6 +23,8 @@ using namespace Halide;
 constexpr static int iterations = 900;
 
 Var x("x"), y("y"), c("c"), t("t");
+Var xo("xo"), yo("yo"), xi("xi"), yi("yi");
+Var to("to"), ti("to");
 Var i("i");
 RDom tr;
 
@@ -141,6 +143,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Input<Buffer<float>> sdf_{"sdf_", 3};
     Input<Buffer<float>> p0_{"p0", 1};
     Input<Buffer<float>> p1_{"p1", 1};
+
+    Input<Buffer<float>> target_{"target_", 3};
 
     Input<int32_t> width{"width"};
     Input<int32_t> height{"height"};
@@ -390,7 +394,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
                              step * TupleVec<3>(repacked_ray_vec(x, y))).get();
 
-        Var xi, xo, yi, yo;
         dist(x, y, t) = 0.0f;
         dist(x, y, tr + 1) = d;
 
@@ -426,10 +429,15 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                           normal_evaluation_position(x, y, t)))).get();
 
         forward(x, y) = {
-            clamp(volumetric_shaded(x, y, iterations)[0], 0.0f, 1.0f),
-            clamp(volumetric_shaded(x, y, iterations)[1], 0.0f, 1.0f),
-            clamp(volumetric_shaded(x, y, iterations)[2], 0.0f, 1.0f)
+            clamp(volumetric_shaded(y, x, iterations)[2], 0.0f, 1.0f),
+            clamp(volumetric_shaded(y, x, iterations)[1], 0.0f, 1.0f),
+            clamp(volumetric_shaded(y, x, iterations)[0], 0.0f, 1.0f)
         };
+        /*forward(x, y) = {
+            clamp(pos(x, y, iterations)[0], 0.0f, 1.0f),
+            clamp(pos(x, y, iterations)[1], 0.0f, 1.0f),
+            clamp(pos(x, y, iterations)[2], 0.0f, 1.0f)
+            };*/
 
         return {
             {"original_ray_pos", original_ray_pos},
@@ -458,7 +466,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     }
 
     parameter_map backwards_pass(
-        GridSDF sdf, parameter_map forward_map, Func target, float EPS = 1e-6f) {
+        GridSDF sdf, parameter_map& forward_map, Func target, float EPS = 1e-6f) {
         Func loss_xyc("loss_xyc");
         Func loss_xy("loss_xy");
         Func loss_y("loss_y");
@@ -483,11 +491,14 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         dLoss_dTranslation = dr(forward_map.at("ray_transform"));
         dLoss_dRayVec = dr(forward_map.at("ray_vec"));
 
+        Func gradient_cont("gradient_cont");
         Func debug_gradient("debug_gradient");
-        debug_gradient(x, y, c) =
+        gradient_cont(x, y, c) =
             dLoss_dSDF(x, y, cast<int32_t>((c / 900.0f) * 128.0f));
+        /*debug_gradient(x, y, c) =
+          Halide::log(abs(gradient_cont(x, y, c))) / 1e2f;*/
         debug_gradient(x, y, c) =
-        Halide::log(abs(debug_gradient(x, y, c))) / 1e2f;
+            select(debug_gradient(x, y, c) != 0.0f, 1.0f, 0.0f);
         //print_func(debug_gradient);
 
         return {
@@ -497,9 +508,52 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             {"loss", loss},
             {"dLoss_dSDF", dLoss_dSDF},
             {"dLoss_dTranslation", dLoss_dTranslation},
-            {"dLoss_dRayVec", dLoss_dRayVec}
-            //, {"debug_gradient", debug_gradient}
+            {"dLoss_dRayVec", dLoss_dRayVec},
+            {"debug_gradient", debug_gradient}
         };
+    }
+
+    void schedule_forward_pass(parameter_map& fw) {
+        // projection stuff performance doesn't matter, we just
+        // DO NOT want to inline it!
+        apply_auto_schedule(fw.at("original_ray_pos"));
+        apply_auto_schedule(fw.at("ray_vec"));
+        apply_auto_schedule(fw.at("origin"));
+
+        fw.at("original_ray_pos").reorder_storage(y, x);
+        fw.at("ray_vec").reorder_storage(y, x);;
+
+        fw.at("ray_transform").compute_root();
+        fw.at("transformed_ray_pos").compute_root();
+
+        fw.at("pos").reorder(t, y, x).reorder_storage(t, y, x)
+        .bound(t, 0, iterations + 1)
+        .compute_at(fw.at("volumetric_shaded"), y);
+        fw.at("dist_render").reorder(t, y, x).reorder_storage(t, y, x)
+        .bound(t, 0, iterations + 1)
+        .compute_at(fw.at("volumetric_shaded"), y);
+        fw.at("normal_evaluation_position").reorder(t, y, x).reorder_storage(t, y, x)
+        .bound(t, 0, iterations + 1)
+        .compute_at(fw.at("volumetric_shaded"), y);
+        fw.at("g_d").reorder(t, y, x).reorder_storage(t, y, x)
+        .bound(t, 0, iterations + 1)
+        .compute_at(fw.at("volumetric_shaded"), y);
+        fw.at("intensity").reorder(t, y, x).reorder_storage(t, y, x)
+        .bound(t, 0, iterations + 1)
+        .compute_at(fw.at("volumetric_shaded"), y);
+
+        fw.at("opc").reorder(t, y, x).reorder_storage(t, y, x)
+        .bound(t, 0, iterations + 1)
+        .compute_at(fw.at("volumetric_shaded"), y);
+
+        fw.at("volumetric_shaded").reorder(t, y, x).reorder_storage(t, y, x)
+        .bound(t, 0, iterations + 1)
+        .compute_at(fw.at("forward"), yi);
+
+        fw.at("forward").reorder(y, x).reorder_storage(y, x)
+        .gpu_tile(y, x, yo, xo, yi, xi, 64, 64).vectorize(yi);
+        fw.at("normals_debug").reorder(y, x).reorder_storage(y, x)
+        .gpu_tile(y, x, yo, xo, yi, xi, 64, 64).vectorize(yi);
     }
 
     void generate() {
@@ -514,9 +568,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         Func end("end");
 
-        model_transform(x) = 0.0f;
+        model_transform(x) = translation_(x);
 
-        Func target_transform("target_transform");
+        /*Func target_transform("target_transform");
         target_transform(x) = 0.0f;
         target_transform(0) = 1.0f;
         target_transform(1) = 2.0f;
@@ -524,33 +578,46 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         GridSDF target_sdf = to_grid_sdf(example_box,
         {-4.0f, -4.0f, -4.0f},
-        {4.0f, 4.0f, 4.0f}, 128, 128, 128);
+        {4.0f, 4.0f, 4.0f}, 128, 128, 128);*/
 
         // controls forward vs backwards pass
         //end(x, y) = fw_pass(x, y);
         //end(x, y) = gradient(x, y, 10);
 
         parameter_map fw_pass = forward_pass("model", grid_sdf, model_transform);
-        parameter_map target = forward_pass("target", target_sdf, target_transform);
+        //parameter_map target = forward_pass("target", target_sdf, target_transform);
 
-        parameter_map bw_pass = backwards_pass(grid_sdf, fw_pass, target.at("forward"));
+        //parameter_map bw_pass = backwards_pass(grid_sdf, fw_pass, target.at("forward"));
+
+        Func target("target");
+        target(x, y) = {
+            target_(x, y, 0),
+            target_(x, y, 1),
+            target_(x, y, 2)
+        };
+        parameter_map bw_pass = backwards_pass(grid_sdf, fw_pass, target);
 
         Func fw_pass_fwd = fw_pass.at("forward");
 
         forward_(x, y, c) = 0.0f;
-        forward_(x, y, 0) = fw_pass_fwd(y, x)[2];
-        forward_(x, y, 1) = fw_pass_fwd(y, x)[1];
-        forward_(x, y, 2) = fw_pass_fwd(y, x)[0];
+        forward_(x, y, 0) = fw_pass_fwd(x, y)[0];
+        forward_(x, y, 1) = fw_pass_fwd(x, y)[1];
+        forward_(x, y, 2) = fw_pass_fwd(x, y)[2];
 
-        //d_l_sdf_(x, y, c) = bw_pass.at("dLoss_dSDF")(x, y, c);
+        //schedule_forward_pass(fw_pass);
+        //fw_pass_fwd.compute_root();
+        //forward_.reorder(c, y, x).reorder_storage(c, y, x);
+
+        d_l_sdf_(x, y, c) = bw_pass.at("dLoss_dSDF")(x, y, c);
         d_l_translation_(x) = bw_pass.at("dLoss_dTranslation")(x);
-        d_l_sdf_(x, y, c) = 0.0f;
+        //d_l_sdf_(x, y, c) = 0.0f;
         //d_l_translation_(x) = 0.0f;
 
-        record(fw_pass.at("volumetric_shaded"));
-        record(target.at("volumetric_shaded"));
-        record(bw_pass.at("dLoss_dRayVec"), true);
-        //record(bw_pass.at("debug_gradient"));
+        //record(fw_pass.at("volumetric_shaded"));
+        //record(fw_pass.at("forward"), true);
+        //record(target.at("volumetric_shaded"));
+        //record(bw_pass.at("dLoss_dRayVec"), true);
+        record(bw_pass.at("debug_gradient"));
 
         // optimizing
         /*float lr = 1e-1f;

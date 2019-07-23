@@ -97,6 +97,7 @@ int main() {
     Buffer<float> p0(3);
     Buffer<float> p1(3);
     Buffer<int32_t> n(n_matrix);
+    Buffer<float> target_(width, height, 3);
     Buffer<float> forward_(width, height, 3);
     Buffer<float> d_l_sdf_(n_matrix[0], n_matrix[1], n_matrix[2]);
     Buffer<float> d_l_translation_(3);
@@ -109,6 +110,12 @@ int main() {
 
     view.set_host_dirty();
     view.copy_to_device(halide_cuda_device_interface());
+
+    model_translation.set_host_dirty();
+    model_translation.copy_to_device(halide_cuda_device_interface());
+
+    target_translation.set_host_dirty();
+    target_translation.copy_to_device(halide_cuda_device_interface());
 
     sdf_model.set_host_dirty();
     sdf_model.copy_to_device(halide_cuda_device_interface());
@@ -129,7 +136,7 @@ int main() {
     std::cout << "Generated 128x128x128 SDF in "
               << std::chrono::duration <float, std::milli> (diff).count()
               << " ms"
-              << std::endl;
+              << std::endl << std::endl;
 
 #ifdef DEBUG_TRACER
     Buffer<uint8_t> debug(8, iterations, width, height, 4);
@@ -137,8 +144,32 @@ int main() {
 #endif //DEBUG_TRACER
 
     start = std::chrono::steady_clock::now();
+
+    tracer_render(projection, view, target_translation,
+                  sdf_target, p0, p1,
+                  forward_, // dummy placeholder
+                  width, height, 0,
+                  target_, d_l_sdf_, d_l_translation_
+#ifdef DEBUG_TRACER
+                  , debug, num_debug
+#endif //DEBUG_TRACER
+                 );
+
+    end = std::chrono::steady_clock::now();
+    diff = end - start;
+
+    std::cout << "rendered target; now going to begin optimization" << std::endl;
+
+    std::cout
+            << "target tracing took "
+            << std::chrono::duration <float, std::milli> (diff).count()
+            << " ms"
+            << std::endl << std::endl;
+
+    start = std::chrono::steady_clock::now();
     tracer_render(projection, view, model_translation,
                   sdf_model, p0, p1,
+                  target_,
                   width, height, 0,
                   forward_, d_l_sdf_, d_l_translation_
 #ifdef DEBUG_TRACER
@@ -151,6 +182,7 @@ int main() {
     std::cout << "done with rendering; copying back now" << std::endl;
 
     forward_.copy_to_host();
+    target_.copy_to_host();
     d_l_sdf_.copy_to_host();
     d_l_translation_.copy_to_host();
 
@@ -173,5 +205,6 @@ int main() {
     write_gifs(debug, iterations, num_debug(0));
 #endif // DEBUG_TRACER
 
-    convert_and_save_image(forward_, "test.png");
+    convert_and_save_image(target_, "target.png");
+    convert_and_save_image(forward_, "model.png");
 }
