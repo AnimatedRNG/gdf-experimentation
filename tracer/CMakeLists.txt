@@ -42,13 +42,21 @@ halide_library_from_generator(sdf_gen
                               HALIDE_TARGET_FEATURES cuda
 )
 
-#halide_generator(fmm_gen.generator SRCS src/fmm_generator.cpp)
-#halide_library_from_generator(fmm_gen
-#                              GENERATOR fmm_gen.generator
-#                              #GENERATOR_ARGS auto_schedule=true
-#                              EXTRA_OUTPUTS schedule
-#                              HALIDE_TARGET_FEATURES cuda
-#)
+halide_generator(optimizer_gen.generator SRCS src/optimizer_generator.cpp)
+halide_library_from_generator(optimizer_gen
+                              GENERATOR optimizer_gen.generator
+                              #GENERATOR_ARGS auto_schedule=true
+                              EXTRA_OUTPUTS schedule
+                              HALIDE_TARGET_FEATURES cuda
+)
+
+halide_generator(fmm_gen.generator SRCS src/fmm_generator.cpp)
+halide_library_from_generator(fmm_gen
+                              GENERATOR fmm_gen.generator
+                              #GENERATOR_ARGS auto_schedule=true
+                              EXTRA_OUTPUTS schedule
+                              HALIDE_TARGET_FEATURES cuda
+)
 
 halide_generator(tracer_render.generator
                  SRCS src/tracer_generator.cpp
@@ -58,18 +66,29 @@ halide_library_from_generator(tracer_render
                               GENERATOR tracer_render.generator
                               GENERATOR_DEPS sobel.generator projection.generator
                               #GENERATOR_ARGS auto_schedule=true
-                              EXTRA_OUTPUTS schedule
+                              EXTRA_OUTPUTS schedule stmt
                               HALIDE_TARGET_FEATURES cuda profile
 )
 
-#add_executable(fmm_test src/fmm_test.cpp)
-#set_target_properties(fmm_test PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-#target_include_directories(fmm_test PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}")
+add_executable(optimizer_test src/optimizer_test.cpp)
+set_target_properties(optimizer_test PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+target_include_directories(optimizer_test PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}")
+halide_use_image_io(optimizer_test)
 
-#target_link_libraries(fmm_test PUBLIC
-#                               ${CMAKE_THREAD_LIBS_INIT}
-#                               sdf_gen
-#                               fmm_gen)
+target_link_libraries(optimizer_test PUBLIC
+                               ${CMAKE_THREAD_LIBS_INIT}
+                               sdf_gen
+                               optimizer_gen)
+
+add_executable(fmm_test src/fmm_test.cpp)
+set_target_properties(fmm_test PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+target_include_directories(fmm_test PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}")
+halide_use_image_io(fmm_test)
+
+target_link_libraries(fmm_test PUBLIC
+                               ${CMAKE_THREAD_LIBS_INIT}
+                               sdf_gen
+                               fmm_gen)
 
 target_link_libraries(tracer PUBLIC
                              ${CMAKE_THREAD_LIBS_INIT}
