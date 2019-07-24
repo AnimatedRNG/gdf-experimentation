@@ -209,7 +209,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         return _tuplevec_unpacked.at(name).at(index);
     }
 
-    void record(Func f, bool wrap_c = false) {
+    void record(Func f, bool wrap_c = false,
+                const std::string& visualization_type = "standard") {
 #ifdef DEBUG_TRACER
         if (wrap_c) {
             Func new_f;
@@ -217,9 +218,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             std::vector<Var> new_ch(args);
             new_ch.push_back(Var("c"));
             new_f(new_ch) = f(args);
-            _record(new_f, debug_, num_debug, initial_debug, current_debug);
+            _record(new_f, debug_, num_debug, initial_debug, current_debug,
+                    visualization_type);
         } else {
-            _record(f, debug_, num_debug, initial_debug, current_debug);
+            _record(f, debug_, num_debug, initial_debug, current_debug,
+                    visualization_type);
         }
 #endif //DEBUG_TRACER
     }
@@ -400,10 +403,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         dist_render(x, y, t) = 0.0f;
         dist_render(x, y, tr + 1) = ds;
 
+        // TODO: this doesn't need to be here
         normal_evaluation_position(x, y, t) = step_back(
                 TupleVec<3>(pos(x, y, t)), TupleVec<3>(ray_vec(x, y))).get();
 
-        g_d(x, y, t) = normal_pdf_rectified(dist(x, y, t));
+        g_d(x, y, t) = normal_pdf_rectified(dist(x, y, t), 1e-1f);
 
         intensity(x, y, t) = shade(normal_evaluation_position, {origin(0), origin(1), origin(2)},
                                    *(sb[name]))(x, y, t);
@@ -476,7 +480,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         Func forward = forward_map.at("forward");
         loss_xyc(x, y) = (TupleVec<3>(target(x, y)) - TupleVec<3>(forward(x, y))).get();
-        loss_xy(x, y) = norm(loss_xyc(x, y));
+        //loss_xyc(x, y) = (1.0f - TupleVec<3>(forward(x, y))).get();
+        loss_xy(x, y) = norm(repack<3>(loss_xyc)(x, y));
         loss_y(y) = 0.0f;
         loss_y(y) += loss_xy(rx, y);
         loss() = 0.0f;
@@ -485,11 +490,19 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Derivative dr = propagate_adjoints(loss);
 
         Func dLoss_dSDF;
+        Func dLoss_dPos;
         Func dLoss_dTranslation;
         Func dLoss_dRayVec;
+        Func dLoss_dVolumetricShaded;
+        Func dLoss_dOpc;
+        Func dLoss_dIntensity;
         dLoss_dSDF = dr(sdf.buffer);
+        dLoss_dPos = dr(forward_map.at("pos"), 0);
         dLoss_dTranslation = dr(forward_map.at("ray_transform"));
         dLoss_dRayVec = dr(forward_map.at("ray_vec"));
+        dLoss_dOpc = dr(forward_map.at("opc"));
+        dLoss_dVolumetricShaded = dr(forward_map.at("volumetric_shaded"), 0);
+        dLoss_dIntensity = dr(forward_map.at("intensity"));
 
         Func gradient_cont("gradient_cont");
         Func debug_gradient("debug_gradient");
@@ -498,7 +511,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         /*debug_gradient(x, y, c) =
           Halide::log(abs(gradient_cont(x, y, c))) / 1e2f;*/
         debug_gradient(x, y, c) =
-            select(gradient_cont(x, y, c) != 0.0f, 0.0f, 1.0f);
+            Halide::log(abs(gradient_cont(x, y, c))) / 1e2f;
         //print_func(debug_gradient);
 
         return {
@@ -507,8 +520,12 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             {"loss_y", loss_y},
             {"loss", loss},
             {"dLoss_dSDF", dLoss_dSDF},
+            {"dLoss_dPos", dLoss_dPos},
             {"dLoss_dTranslation", dLoss_dTranslation},
             {"dLoss_dRayVec", dLoss_dRayVec},
+            {"dLoss_dVolumetricShaded", dLoss_dVolumetricShaded},
+            {"dLoss_dOpc", dLoss_dOpc},
+            {"dLoss_dIntensity", dLoss_dIntensity},
             {"debug_gradient", debug_gradient}
         };
     }
@@ -599,9 +616,32 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //record(target, true);
         //record(fw_pass.at("forward"), true);
         //record(fw_pass.at("volumetric_shaded"));
-        //record(bw_pass.at("dLoss_dRayVec"), true);
+
+        record(bw_pass.at("dLoss_dPos"), false, "exists");
+        record(bw_pass.at("dLoss_dRayVec"), true, "exists");
+        record(bw_pass.at("dLoss_dIntensity"), false, "exists");
+        record(bw_pass.at("dLoss_dOpc"), false, "exists");
+        record(bw_pass.at("dLoss_dVolumetricShaded"), false, "exists");
         //record(bw_pass.at("debug_gradient"));
-        record(bw_pass.at("loss_xy"), true);
+
+        Func dLoss_dVolumetricShaded_fi("dLoss_dVolumetricShaded_fi");
+        dLoss_dVolumetricShaded_fi(x, y) =
+            bw_pass.at("dLoss_dVolumetricShaded")(x, y, iterations);
+        Func dLoss_dOpc_fi("dLoss_dOpc_fi");
+        dLoss_dOpc_fi(x, y) =
+            bw_pass.at("dLoss_dOpc")(x, y, iterations - 1);
+        Func dLoss_dIntensity_fi("dLoss_dIntensity_fi");
+        dLoss_dIntensity_fi(x, y) =
+            bw_pass.at("dLoss_dIntensity")(x, y, iterations - 1);
+        Func dLoss_dPos_fi("dLoss_Pos_fi");
+        dLoss_dPos_fi(x, y) =
+            bw_pass.at("dLoss_dPos")(x, y, iterations - 2);
+
+        //record(dLoss_dVolumetricShaded_fi, true, "abs");
+        //record(dLoss_dOpc_fi, true, "log");
+        //record(dLoss_dIntensity_fi, true, "log");
+        //record(dLoss_dPos_fi, true, "log");
+        //record(bw_pass.at("loss_xy"), true, "abs");
 
         // optimizing
         /*float lr = 1e-1f;
@@ -672,7 +712,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
             Halide::SimpleAutoscheduleOptions options;
             options.gpu = get_target().has_gpu_feature();
-            //options.gpu_tile_channel = 1;
+            options.gpu_tile_channel = 1;
             //options.unroll_rvar_size = 10;
 
 #ifdef DEBUG_TRACER
@@ -703,12 +743,12 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                 {"p0_.extent.0", 4},
                 {"p1_.min.0", 0},
                 {"p1_.extent.0", 4},
-                {"width", 1920},
-                {"height", 1080},
+                {"width", 300},
+                {"height", 300},
             }, {
                 {
-                    {0, 1920},
-                    {0, 1080},
+                    {0, 300},
+                    {0, 300},
                     {0, 3}
                 },
                 {
@@ -722,9 +762,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 #ifdef DEBUG_TRACER
                 {
                     {0, current_debug},
+                    {0, 900},
                     {0, 300},
-                    {0, 1920},
-                    {0, 1080},
+                    {0, 300},
                     {0, 3}
                 },
                 {
@@ -737,11 +777,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             //print_func_dependencies(dr.funcs(sb->buffer).at(0).function());
 
             // sets every dependency to compute_root its ancestor
-            for (auto entry : sb) {
+            /*for (auto entry : sb) {
                 apply_auto_schedule(entry.second->buffer);
             }
             apply_auto_schedule(projection_);
-            apply_auto_schedule(view_);
+            apply_auto_schedule(view_);*/
         }
     }
 };

@@ -48,7 +48,7 @@ void write_gifs(
                           buffer,
                           width, height, delay);
         }
-        std::cout << "Finished writing 300 frames of " << filename << std::endl;
+        std::cout << "Finished writing 900 frames of " << filename << std::endl;
         GifEnd(&g);
     }
     free(buffer);
