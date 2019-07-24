@@ -8,6 +8,7 @@ import os
 from collections import namedtuple
 
 device = torch.device('cuda:0')
+float_t = torch.float32
 
 
 class ImageRenderer:
@@ -48,7 +49,7 @@ class ImageRenderer:
             os.mkdir("./screenshots")
         for gif_name, gif_images in self.recordings.items():
             filename = os.path.join("screenshots", gif_name + ".gif")
-            imageio.mimwrite(filename, gif_images, 'GIF')
+            imageio.mimwrite(filename, gif_images, 'GIF', duration=0.006)
             try:
                 os.popen(
                     "gifsicle -O3 {filename} -o {filename}".format(filename=filename))
@@ -65,22 +66,23 @@ def sanitize(t, set_value=0):
 def projection(proj_matrix, view_matrix, tiling):
     width, height, x_off, y_off, x_tile, y_tile = tiling
 
-    rays = torch.zeros((2, height, width, 3), dtype=torch.float64)
+    rays = torch.zeros((2, height, width, 3),
+                       dtype=float_t, device=device)
     inv = torch.inverse(proj_matrix @ view_matrix)
     origin = (torch.inverse(view_matrix) @ torch.tensor(
-        (0.0, 0.0, 0.0, 1.0), dtype=torch.float64))[:3]
+        (0.0, 0.0, 0.0, 1.0), dtype=float_t, device=device))[:3]
     near = 0.1
-    grid = torch.meshgrid(torch.linspace(-1.0, 1.0, height, dtype=torch.float64),
-                          torch.linspace(-1.0, 1.0, width, dtype=torch.float64))
+    grid = torch.meshgrid(torch.linspace(-1.0, 1.0, height, dtype=float_t, device=device),
+                          torch.linspace(-1.0, 1.0, width, dtype=float_t, device=device))
     clip_space = torch.stack(
         (grid[0], grid[1],
-         torch.ones((height, width), dtype=torch.float64),
-         torch.ones((height, width), dtype=torch.float64)), dim=-1)
+         torch.ones((height, width), dtype=float_t, device=device),
+         torch.ones((height, width), dtype=float_t, device=device)), dim=-1)
     tmp = torch.matmul(inv, clip_space.view(height, width, 4, 1)).squeeze()
     tmp = tmp / tmp[:, :, 3:]
     tmp = tmp[:, :, :3]
     tmp = tmp - torch.tensor((origin[0], origin[1], origin[2]),
-                             dtype=torch.float64)
+                             dtype=float_t, device=device)
     ray_vec = tmp / torch.norm(tmp, p=2, dim=2).unsqueeze(-1)
     rays[0, :, :] = origin + ray_vec * near
     rays[1, :, :] = ray_vec
@@ -92,8 +94,8 @@ def to_render_dist(dist):
     # TODO: Proper clamping to grid cell boundaries
     # return dist
     # return torch.min(dist, torch.ones(dist.shape, dtype=dist.dtype))
-    # return torch.ones_like(dist, dtype=torch.float64) / 3
-    step = torch.ones_like(dist, dtype=torch.float64)
+    # return torch.ones_like(dist, dtype=float_t) / 3
+    step = torch.ones_like(dist, dtype=float_t)
     interpolant = (1.0 - torch.clamp(torch.abs(dist), 0.0, 1.0)) * 90
     return step / (10 + interpolant)
 
@@ -102,7 +104,7 @@ def vmax(v):
     return torch.max(torch.max(v[:, :, 0], v[:, :, 1]), v[:, :, 2])
 
 
-def box_model(position, b=torch.tensor((3.0, 3.0, 3.0), dtype=torch.float64)):
+def box_model(position, b=torch.tensor((3.0, 3.0, 3.0), dtype=float_t, device=device)):
     # Warning: evil discontinuity!
     d = torch.abs(position) - b
     zero_tensor = torch.zeros_like(d)
@@ -111,7 +113,7 @@ def box_model(position, b=torch.tensor((3.0, 3.0, 3.0), dtype=torch.float64)):
 
 
 def sphere_model(position,
-                 radius=torch.tensor((3.0,), requires_grad=True)):
+                 radius=torch.tensor((3.0,), requires_grad=True, device=device)):
     return (torch.norm(position, p=2, dim=2) - radius).unsqueeze(-1)
 
 
@@ -143,7 +145,7 @@ def sdf_iteration(ray_matrix, model):
     xyz = ray_matrix[0, :, :, :]
     vec = ray_matrix[1, :, :, :]
     # d = model.generate_model(
-    #    {'pos': torch.tensor(xyz, dtype=torch.float64, device=device)})
+    #    {'pos': torch.tensor(xyz, dtype=float_t, device=device)})
     d = model(xyz)
     return (xyz + to_render_dist(d) * vec, d)
 
@@ -162,7 +164,8 @@ def h(positions, index, sdf, EPS=1e-5):
     forward[:, :, index] = forward[:, :, index] + EPS
     backward[:, :, index] = backward[:, :, index] - EPS
     top = torch.stack((sdf(backward), sdf(positions), sdf(forward)), dim=-1)
-    bottom = torch.tensor((1.0, 2.0, 1.0), dtype=torch.float64).view(1, -1, 1)
+    bottom = torch.tensor(
+        (1.0, 2.0, 1.0), dtype=float_t, device=device).view(1, -1, 1)
 
     dim_0 = positions.shape[0]
     dim_1 = positions.shape[1]
@@ -176,7 +179,8 @@ def h_p(positions, index, sdf, EPS=1e-6):
     forward[:, :, index] = forward[:, :, index] + EPS
     backward[:, :, index] = backward[:, :, index] - EPS
     top = torch.stack((sdf(backward), sdf(forward)), dim=-1)
-    bottom = torch.tensor((1.0, -1.0), dtype=torch.float64).view(1, -1, 1)
+    bottom = torch.tensor((1.0, -1.0), dtype=float_t,
+                          device=device).view(1, -1, 1)
 
     dim_0 = positions.shape[0]
     dim_1 = positions.shape[1]
@@ -217,10 +221,13 @@ def light_source(light_color,
 
 
 def shade(rays, origin, normals, EPS=1e-6):
-    top_light_color = torch.tensor((0.6, 0.6, 0.0), dtype=torch.float64)
-    self_light_color = torch.tensor((0.4, 0.0, 0.4), dtype=torch.float64)
+    top_light_color = torch.tensor(
+        (0.6, 0.6, 0.0), dtype=float_t, device=device)
+    self_light_color = torch.tensor(
+        (0.4, 0.0, 0.4), dtype=float_t, device=device)
 
-    top_light_pos = torch.tensor((10.0, 30.0, 0.0), dtype=torch.float64)
+    top_light_pos = torch.tensor(
+        (10.0, 30.0, 0.0), dtype=float_t, device=device)
     self_light_pos = origin
 
     top_light = light_source(
@@ -247,12 +254,16 @@ Tiling = namedtuple('Tiling', ['width', 'height',
 def forward_pass(grid_sdf,
                  renderer,
                  tiling=Tiling(
-                     width=512,
-                     height=384,
+                     # width=512,
+                     # height=384,
+                     width=92,
+                     height=92,
                      x_off=0,
                      y_off=0,
-                     x_tile=512,
-                     y_tile=384
+                     # x_tile=512,
+                     # y_tile=384
+                     x_tile=92,
+                     y_tile=92
                  ),
                  iterations=300, EPS=1e-6, verbose=True, prefix=""):
     _, _, x_off, y_off, x_tile, y_tile = tiling
@@ -261,19 +272,31 @@ def forward_pass(grid_sdf,
     rays, origin = projection(projection_matrix, view_matrix, tiling)
     #rays = [rays.unsqueeze(0).repeat(1, 1, 1, 1)]
     rays = [rays]
-    opc = [torch.zeros((y_tile, x_tile, 1), dtype=torch.float64)]
-    c = [torch.zeros((y_tile, x_tile, 3), dtype=torch.float64)]
+    opc = [torch.zeros((y_tile, x_tile, 1),
+                       dtype=float_t, device=device)]
+    c = [torch.zeros((y_tile, x_tile, 3), dtype=float_t,
+                     device=device, requires_grad=True)]
     k = -1.0
     u_s = 1.0
 
-    #num = torch.zeros((height, width, 3), dtype=torch.float64)
-    #denom = torch.zeros((height, width, 1), dtype=torch.float64)
+    #num = torch.zeros((height, width, 3), dtype=float_t)
+    #denom = torch.zeros((height, width, 1), dtype=float_t)
 
     #def model(position): return grid_sdf_model(position, grid_sdf)
     if isinstance(grid_sdf.data, torch.Tensor):
         raise Exception
     else:
         model = grid_sdf.data
+
+    def hook(name):
+        def inner(grad):
+            renderer.show(
+                fmt(name), abs(grad).detach().cpu().numpy())
+            renderer.record(
+                fmt(name), abs(grad).detach().cpu().numpy())
+            renderer.render_all_images(1)
+
+        return inner
 
     def fmt(st): return "{}_{}".format(prefix, st)
     for i in range(1, iterations + 1):
@@ -289,6 +312,11 @@ def forward_pass(grid_sdf,
         c.append(c[i - 1] + (g_d * u_s) *
                  torch.exp(k * opc[i]) * intensity * ds)
 
+        intensity.register_hook(hook("intensity_d"))
+        pos_2.register_hook(hook("pos_2_d"))
+        opc[i].register_hook(hook("opc_d"))
+        c[i].register_hook(hook("volumetric_shaded_d"))
+
         #num += g_d * intensity
         #denom += g_d
 
@@ -297,18 +325,18 @@ def forward_pass(grid_sdf,
         rays.append(rays_cpy)
 
         if verbose:
-            renderer.show(fmt('rays'), rays[i].detach().numpy()[1])
-            renderer.show(fmt('normals'), normals.detach().numpy())
-            renderer.show(fmt('d'), d.detach().numpy() / 30.0)
-            renderer.show(fmt('g_d'), g_d.detach().numpy())
-            renderer.show(fmt('opacity'), opc[i].detach().numpy())
-            renderer.show(fmt('ds'), ds.detach().numpy())
-            renderer.show(fmt('intensity'), intensity.detach().numpy())
+            renderer.show(fmt('rays'), rays[i].detach().cpu().numpy()[1])
+            renderer.show(fmt('normals'), normals.detach().cpu().numpy())
+            renderer.show(fmt('d'), d.detach().cpu().numpy() / 30.0)
+            renderer.show(fmt('g_d'), g_d.detach().cpu().numpy())
+            renderer.show(fmt('opacity'), opc[i].detach().cpu().numpy())
+            renderer.show(fmt('ds'), ds.detach().cpu().numpy())
+            renderer.show(fmt('intensity'), intensity.detach().cpu().numpy())
 
             renderer.record(fmt('intensity'),
-                            intensity.detach().numpy())
+                            intensity.detach().cpu().numpy())
 
-            energy_shaded_img = (c[i]).detach().numpy()
+            energy_shaded_img = (c[i]).detach().cpu().numpy()
             renderer.record(fmt('opacity_shaded'),
                             energy_shaded_img)
             renderer.show(fmt('opacity_shaded'), energy_shaded_img)
@@ -316,7 +344,12 @@ def forward_pass(grid_sdf,
         renderer.render_all_images(1)
 
     intensity = c[iterations]
-    # renderer.save_gifs()
+
+    loss = torch.nn.MSELoss(size_average=False)(
+        intensity, torch.ones_like(intensity, device=device))
+    loss.backward(retain_graph=False)
+
+    renderer.save_gifs()
     return (intensity, d)
 
 
@@ -330,8 +363,24 @@ def create_analytic(sc, model):
 if __name__ == '__main__':
     import scene
     renderer = ImageRenderer()
-    test_scene = scene.load('test.hdf5')
-    params = test_scene._asdict()
+    #test_scene = scene.load('test.hdf5')
+    #params = test_scene._asdict()
+    params = {}
+    params['perspective'] = torch.tensor([
+        [0.75, 0.0, 0.0,  0.0],
+        [0.0,  1.0, 0.0,  0.0],
+        [0.0,  0.0, 1.0002,  1.0],
+        [0.0,  0.0, -0.2,  0.0]
+    ], dtype=float_t, device=device, requires_grad=True).transpose(0, 1)
+
+    params['view'] = torch.tensor([
+        [-0.9825, 0.1422, 0.1206, 0.0],
+        [0.0, 0.6469, -0.7626, 0.0],
+        [0.1865, 0.7492, 0.6356, 0.0],
+        [-0.3166, 1.1503, 8.8977, 1.0]
+    ], dtype=float_t, device=device, requires_grad=True).transpose(0, 1)
+    params['start'] = None
+    params['end'] = None
     params['data'] = box_model
     print(params)
     adjusted_scene = scene.GridSDF(**params)
