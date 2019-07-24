@@ -475,7 +475,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         RDom ry(0, height);
 
         Func forward = forward_map.at("forward");
-        loss_xyc(x, y) = (1.0f - TupleVec<3>(forward(x, y))).get();
+        loss_xyc(x, y) = (TupleVec<3>(target(x, y)) - TupleVec<3>(forward(x, y))).get();
         loss_xy(x, y) = norm(loss_xyc(x, y));
         loss_y(y) = 0.0f;
         loss_y(y) += loss_xy(rx, y);
@@ -498,7 +498,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         /*debug_gradient(x, y, c) =
           Halide::log(abs(gradient_cont(x, y, c))) / 1e2f;*/
         debug_gradient(x, y, c) =
-            select(debug_gradient(x, y, c) != 0.0f, 1.0f, 0.0f);
+            select(gradient_cont(x, y, c) != 0.0f, 0.0f, 1.0f);
         //print_func(debug_gradient);
 
         return {
@@ -570,24 +570,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         model_transform(x) = translation_(x);
 
-        /*Func target_transform("target_transform");
-        target_transform(x) = 0.0f;
-        target_transform(0) = 1.0f;
-        target_transform(1) = 2.0f;
-        target_transform(2) = 3.0f;
-
-        GridSDF target_sdf = to_grid_sdf(example_box,
-        {-4.0f, -4.0f, -4.0f},
-        {4.0f, 4.0f, 4.0f}, 128, 128, 128);*/
-
-        // controls forward vs backwards pass
-        //end(x, y) = fw_pass(x, y);
-        //end(x, y) = gradient(x, y, 10);
-
         parameter_map fw_pass = forward_pass("model", grid_sdf, model_transform);
-        //parameter_map target = forward_pass("target", target_sdf, target_transform);
-
-        //parameter_map bw_pass = backwards_pass(grid_sdf, fw_pass, target.at("forward"));
 
         Func target("target");
         target(x, y) = {
@@ -608,16 +591,17 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //fw_pass_fwd.compute_root();
         //forward_.reorder(c, y, x).reorder_storage(c, y, x);
 
-        d_l_sdf_(x, y, c) = bw_pass.at("dLoss_dSDF")(x, y, c);
-        d_l_translation_(x) = bw_pass.at("dLoss_dTranslation")(x);
-        //d_l_sdf_(x, y, c) = 0.0f;
-        //d_l_translation_(x) = 0.0f;
+        //d_l_sdf_(x, y, c) = bw_pass.at("dLoss_dSDF")(x, y, c);
+        //d_l_translation_(x) = bw_pass.at("dLoss_dTranslation")(x);
+        d_l_sdf_(x, y, c) = 0.0f;
+        d_l_translation_(x) = 0.0f;
 
-        //record(fw_pass.at("volumetric_shaded"));
+        //record(target, true);
         //record(fw_pass.at("forward"), true);
-        //record(target.at("volumetric_shaded"));
+        //record(fw_pass.at("volumetric_shaded"));
         //record(bw_pass.at("dLoss_dRayVec"), true);
-        record(bw_pass.at("debug_gradient"));
+        //record(bw_pass.at("debug_gradient"));
+        record(bw_pass.at("loss_xy"), true);
 
         // optimizing
         /*float lr = 1e-1f;

@@ -11,6 +11,8 @@
 
 #include "tracer_render.h"
 #include "sdf_gen.h"
+#include "optimizer.hpp"
+#include "optimizer_gen.h"
 #include "read_sdf.hpp"
 #include "debug.hpp"
 
@@ -105,6 +107,8 @@ int main() {
     Buffer<float> model_translation(model_translation_);
     Buffer<float> target_translation(target_translation_);
 
+    ADAM adam(model_translation, d_l_translation_);
+
     projection.set_host_dirty();
     projection.copy_to_device(halide_cuda_device_interface());
 
@@ -166,45 +170,68 @@ int main() {
             << " ms"
             << std::endl << std::endl;
 
-    start = std::chrono::steady_clock::now();
-    tracer_render(projection, view, model_translation,
-                  sdf_model, p0, p1,
-                  target_,
-                  width, height, 0,
-                  forward_, d_l_sdf_, d_l_translation_
+    sdf_model.set_host_dirty();
+    sdf_model.copy_to_device(halide_cuda_device_interface());
+    for (int epoch = 0; epoch < 1; epoch++) {
+        model_translation.set_host_dirty();
+        model_translation.copy_to_device(halide_cuda_device_interface());
+
+        start = std::chrono::steady_clock::now();
+        tracer_render(projection, view, model_translation,
+                      sdf_model, p0, p1,
+                      target_,
+                      width, height, 0,
+                      forward_, d_l_sdf_, d_l_translation_
 #ifdef DEBUG_TRACER
-                  , debug, num_debug
+                      , debug, num_debug
 #endif //DEBUG_TRACER
-                 );
-    end = std::chrono::steady_clock::now();
-    diff = end - start;
+                     );
+        end = std::chrono::steady_clock::now();
+        diff = end - start;
 
-    std::cout << "done with rendering; copying back now" << std::endl;
+        std::cout << "done with rendering; copying back now" << std::endl;
 
-    forward_.copy_to_host();
-    target_.copy_to_host();
-    d_l_sdf_.copy_to_host();
-    d_l_translation_.copy_to_host();
+        model_translation.copy_to_host();
+        std::cout << "before step -- model_translation " << model_translation(0) << " "
+                  << model_translation(1) << " "
+                  << model_translation(2) << std::endl;
+        model_translation.set_host_dirty();
+        model_translation.copy_to_device(halide_cuda_device_interface());
 
-    std::cout << "d_l_translation " << d_l_translation_(0) << " "
-              << d_l_translation_(1) << " "
-              << d_l_translation_(2) << std::endl;
+        adam.step();
+
+        forward_.copy_to_host();
+        target_.copy_to_host();
+        d_l_sdf_.copy_to_host();
+        d_l_translation_.copy_to_host();
+
+        model_translation.copy_to_host();
+
+        std::cout << "d_l_translation " << d_l_translation_(0) << " "
+                  << d_l_translation_(1) << " "
+                  << d_l_translation_(2) << std::endl;
+
+        std::cout << "model_translation " << model_translation(0) << " "
+                  << model_translation(1) << " "
+                  << model_translation(2) << std::endl;
 
 #ifdef DEBUG_TRACER
-    debug.copy_to_host();
-    num_debug.copy_to_host();
+        debug.copy_to_host();
+        num_debug.copy_to_host();
 #endif //DEBUG_TRACER
+        std::cout << "num_debug " << num_debug(0) << std::endl;
 
-    std::cout
-            << "tracing took "
-            << std::chrono::duration <float, std::milli> (diff).count()
-            << " ms"
-            << std::endl;
+        std::cout
+                << "tracing took "
+                << std::chrono::duration <float, std::milli> (diff).count()
+                << " ms"
+                << std::endl;
 
 #ifdef DEBUG_TRACER
-    write_gifs(debug, iterations, num_debug(0));
+        write_gifs(debug, iterations, num_debug(0));
 #endif // DEBUG_TRACER
 
-    convert_and_save_image(target_, "target.png");
-    convert_and_save_image(forward_, "model.png");
+        convert_and_save_image(target_, "target.png");
+        convert_and_save_image(forward_, "model_" + std::to_string(epoch) + ".png");
+    }
 }
