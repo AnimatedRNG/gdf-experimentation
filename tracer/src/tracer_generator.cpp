@@ -154,7 +154,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Output<Buffer<float>> d_l_sdf_{"d_l_sdf_", 3};
     Output<Buffer<float>> d_l_translation_{"d_l_translation_", 1};
 #ifdef DEBUG_TRACER
-    Output<Func> debug_ {"debug", UInt(8), 5};
+    Output<Func> debug_ {"debug", Float(32), 5};
     Output<Func> num_debug{"num_debug", Int(32), 1};
 #endif // DEBUG_TRACER
 
@@ -316,6 +316,10 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                                 + TupleVec<3>(self_light(x, y, t))).get();
 
         return total_light;
+
+        //Func tt;
+        //tt(x, y, t) = {1.0f, 0.0f, 0.0f};
+        //return tt;
     }
 
     TupleVec<3> step_back(TupleVec<3> positions, TupleVec<3> ray_vec,
@@ -357,7 +361,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func dist("dist_" + name);
         Func dist_render("dist_render_" + name);
 
-        Func normal_evaluation_position("normal_evaluation_position_" + name);
         Func g_d("g_d_" + name);
 
         Func intensity("intensity_" + name);
@@ -403,17 +406,14 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         dist_render(x, y, t) = 0.0f;
         dist_render(x, y, tr + 1) = ds;
 
-        // TODO: this doesn't need to be here
-        normal_evaluation_position(x, y, t) = step_back(
-                TupleVec<3>(pos(x, y, t)), TupleVec<3>(ray_vec(x, y))).get();
+        g_d(x, y, t) = normal_pdf_rectified(dist(x, y, t));
 
-        g_d(x, y, t) = normal_pdf_rectified(dist(x, y, t), 1e-1f);
-
-        intensity(x, y, t) = shade(normal_evaluation_position, {origin(0), origin(1), origin(2)},
+        intensity(x, y, t) = shade(pos, {origin(0), origin(1), origin(2)},
                                    *(sb[name]))(x, y, t);
 
         opc(x, y, t) = 0.0f;
-        opc(x, y, tr + 1) = opc(x, y, tr) + g_d(x, y, tr) * dist_render(x, y, tr);
+        //opc(x, y, tr + 1) = opc(x, y, tr) + g_d(x, y, tr) * dist_render(x, y, tr);
+        opc(x, y, tr + 1) = opc(x, y, tr) + g_d(x, y, tr) * step;
 
         float u_s = 1.0f;
         float k = -1.0f;
@@ -424,13 +424,14 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         volumetric_shaded(x, y, t) = {0.0f, 0.0f, 0.0f};
         volumetric_shaded(x, y, tr + 1) =
             (TupleVec<3>(volumetric_shaded(x, y, tr)) + (scattering * Halide::exp(k * opc(x,
-                    y, tr))) *
-             TupleVec<3>(intensity(x, y, tr)) * Expr(dist_render(x, y, tr))).get();
+                    y, tr + 1))) *
+             //TupleVec<3>(intensity(x, y, tr)) * Expr(dist_render(x, y, tr))).get();
+             TupleVec<3>(intensity(x, y, tr)) * step).get();
 
         normals_debug(x, y, t) = (trilinear<3>(
                                       *(sb[name]),
                                       TupleVec<3>(
-                                          normal_evaluation_position(x, y, t)))).get();
+                                          pos(x, y, t)))).get();
 
         forward(x, y) = {
             clamp(volumetric_shaded(y, x, iterations)[2], 0.0f, 1.0f),
@@ -454,7 +455,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             {"dist", dist},
             {"dist_render", dist_render},
 
-            {"normal_evaluation_position", normal_evaluation_position},
             {"g_d", g_d},
 
             {"intensity", intensity},
@@ -549,9 +549,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         fw.at("dist_render").reorder(t, y, x).reorder_storage(t, y, x)
         .bound(t, 0, iterations + 1)
         .compute_at(fw.at("volumetric_shaded"), y);
-        fw.at("normal_evaluation_position").reorder(t, y, x).reorder_storage(t, y, x)
-        .bound(t, 0, iterations + 1)
-        .compute_at(fw.at("volumetric_shaded"), y);
         fw.at("g_d").reorder(t, y, x).reorder_storage(t, y, x)
         .bound(t, 0, iterations + 1)
         .compute_at(fw.at("volumetric_shaded"), y);
@@ -575,7 +572,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
     void generate() {
 #ifdef DEBUG_TRACER
-        debug_(i, t, x, y, c) = cast<uint8_t>(0);
+        debug_(i, t, x, y, c) = 0.0f;
 #endif //DEBUG_TRACER
         sb = std::unordered_map<std::string, std::shared_ptr<GridSDF>>();
 
@@ -608,21 +605,21 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //fw_pass_fwd.compute_root();
         //forward_.reorder(c, y, x).reorder_storage(c, y, x);
 
-        //d_l_sdf_(x, y, c) = bw_pass.at("dLoss_dSDF")(x, y, c);
-        //d_l_translation_(x) = bw_pass.at("dLoss_dTranslation")(x);
-        d_l_sdf_(x, y, c) = 0.0f;
-        d_l_translation_(x) = 0.0f;
+        d_l_sdf_(x, y, c) = bw_pass.at("dLoss_dSDF")(x, y, c);
+        d_l_translation_(x) = bw_pass.at("dLoss_dTranslation")(x);
+        //d_l_sdf_(x, y, c) = 0.0f;
+        //d_l_translation_(x) = 0.0f;
 
         //record(target, true);
         //record(fw_pass.at("forward"), true);
-        //record(fw_pass.at("volumetric_shaded"));
+        record(fw_pass.at("volumetric_shaded"));
 
         record(bw_pass.at("dLoss_dPos"), false, "exists");
         record(bw_pass.at("dLoss_dRayVec"), true, "exists");
         record(bw_pass.at("dLoss_dIntensity"), false, "exists");
         record(bw_pass.at("dLoss_dOpc"), false, "exists");
         record(bw_pass.at("dLoss_dVolumetricShaded"), false, "exists");
-        //record(bw_pass.at("debug_gradient"));
+        record(bw_pass.at("debug_gradient"), false, "standard");
 
         Func dLoss_dVolumetricShaded_fi("dLoss_dVolumetricShaded_fi");
         dLoss_dVolumetricShaded_fi(x, y) =
@@ -630,9 +627,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Func dLoss_dOpc_fi("dLoss_dOpc_fi");
         dLoss_dOpc_fi(x, y) =
             bw_pass.at("dLoss_dOpc")(x, y, iterations - 1);
-        Func dLoss_dIntensity_fi("dLoss_dIntensity_fi");
-        dLoss_dIntensity_fi(x, y) =
-            bw_pass.at("dLoss_dIntensity")(x, y, iterations - 1);
+        //Func dLoss_dIntensity_fi("dLoss_dIntensity_fi");
+        //dLoss_dIntensity_fi(x, y) =
+        //    bw_pass.at("dLoss_dIntensity")(x, y, iterations - 1);
         Func dLoss_dPos_fi("dLoss_Pos_fi");
         dLoss_dPos_fi(x, y) =
             bw_pass.at("dLoss_dPos")(x, y, iterations - 2);
@@ -641,32 +638,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //record(dLoss_dOpc_fi, true, "log");
         //record(dLoss_dIntensity_fi, true, "log");
         //record(dLoss_dPos_fi, true, "log");
-        //record(bw_pass.at("loss_xy"), true, "abs");
-
-        // optimizing
-        /*float lr = 1e-1f;
-        Func optimization("optimization");
-        optimization(x, y, c) = {0.0f, 0.0f, 0.0f};
-        for (int epoch = 0; epoch < 128; epoch++) {
-            Func new_sdf("new_sdf_" + std::to_string(epoch));
-            Func gradient("gradient" + std::to_string(epoch));
-            gradient(x, y, c) = backwards_pass(grid_sdf, fw_pass, target)(x, y, c);
-            new_sdf(x, y, c) = grid_sdf.buffer(x, y, c) - gradient(x, y, c) * lr;
-            optimization(x, y, epoch) = fw_pass(x, y);
-
-            grid_sdf.buffer = new_sdf;
-        }
-        record(optimization);*/
-
-        // flip image and RGB -> BGR to match OpenCV's output
-        /*out_(x, y, c) = 0.0f;
-        out_(x, y, 0) = clamp(end(y, x)[2], 0.0f, 1.0f);
-        out_(x, y, 1) = clamp(end(y, x)[1], 0.0f, 1.0f);
-        out_(x, y, 2) = clamp(end(y, x)[0], 0.0f, 1.0f);*/
-        //out_(x, y, c) = 0.0f;
-        //out_(x, y, 0) = end(y, x)[0];
-        //out_(x, y, 1) = end(y, x)[1];
-        //out_(x, y, 2) = end(y, x)[2];
+        record(bw_pass.at("loss_xy"), true, "standard");
 
 #ifdef DEBUG_TRACER
         num_debug(x) = Func(Expr(current_debug) + initial_debug)();

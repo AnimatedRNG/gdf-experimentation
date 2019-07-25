@@ -20,10 +20,10 @@ using namespace Halide::Runtime;
 using namespace Halide::Tools;
 
 void write_gifs(
-    Buffer<uint8_t> buf,
+    Buffer<float> buf,
     int iterations,
     int num_gifs = 1,
-    float delay = 0.000001f) {
+    uint32_t delay = 1) {
 
     int width = buf.dim(2).max() + 1;
     int height = buf.dim(3).max() + 1;
@@ -40,7 +40,9 @@ void write_gifs(
             for (int x = 0; x < width; x++) {
                 for (int y = 0; y < height; y++) {
                     for (int c = 0; c < 4; c++) {
-                        buffer[x * height * 4 + y * 4 + c] = buf(gif, i, x, y, c);
+                        buffer[x * height * 4 + y * 4 + c] =
+                            (uint8_t)(buf(gif, i, x, y, c) * 255.0f);
+                        //std::cout << buf(gif, i, x, y, c) << std::endl;
                     }
                 }
             }
@@ -80,8 +82,8 @@ int main() {
         128, 128, 128
     };
 
-    int width = 128;
-    int height = 128;
+    int width = 64;
+    int height = 64;
     int iterations = 900;
 
     //float p0_x, p0_y, p0_z, p1_x, p1_y, p1_z;
@@ -143,7 +145,7 @@ int main() {
               << std::endl << std::endl;
 
 #ifdef DEBUG_TRACER
-    Buffer<uint8_t> debug(8, iterations, width, height, 4);
+    Buffer<float> debug(8, iterations, width, height, 4);
     Buffer<int32_t> num_debug(1);
 #endif //DEBUG_TRACER
 
@@ -172,7 +174,7 @@ int main() {
 
     sdf_model.set_host_dirty();
     sdf_model.copy_to_device(halide_cuda_device_interface());
-    for (int epoch = 0; epoch < 1; epoch++) {
+    for (int epoch = 0; epoch < 20; epoch++) {
         model_translation.set_host_dirty();
         model_translation.copy_to_device(halide_cuda_device_interface());
 
@@ -211,6 +213,9 @@ int main() {
                   << d_l_translation_(1) << " "
                   << d_l_translation_(2) << std::endl;
 
+        d_l_translation_.set_host_dirty();
+        d_l_translation_.copy_to_device(halide_cuda_device_interface());
+
         std::cout << "model_translation " << model_translation(0) << " "
                   << model_translation(1) << " "
                   << model_translation(2) << std::endl;
@@ -218,8 +223,9 @@ int main() {
 #ifdef DEBUG_TRACER
         debug.copy_to_host();
         num_debug.copy_to_host();
-#endif //DEBUG_TRACER
+
         std::cout << "num_debug " << num_debug(0) << std::endl;
+#endif //DEBUG_TRACER
 
         std::cout
                 << "tracing took "
