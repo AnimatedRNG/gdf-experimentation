@@ -87,12 +87,15 @@ int main() {
     int iterations = 900;
 
     //float p0_x, p0_y, p0_z, p1_x, p1_y, p1_z;
-    float p0_matrix[3];
-    float p1_matrix[3];
-    /*Buffer<float> lucy = read_sdf("lucy.sdf",
-                                  p0_matrix[0], p0_matrix[1], p0_matrix[2],
-                                  p1_matrix[0], p1_matrix[1], p1_matrix[2],
-                                  true, true, 4.0f);*/
+    float p0_1_matrix[3];
+    float p1_1_matrix[3];
+    int32_t n_1_matrix[3];
+
+    Buffer<float> lucy = read_sdf("bunny.sdf",
+                                  p0_1_matrix[0], p0_1_matrix[1], p0_1_matrix[2],
+                                  p1_1_matrix[0], p1_1_matrix[1], p1_1_matrix[2],
+                                  n_1_matrix[0], n_1_matrix[1], n_1_matrix[2],
+                                  true, true, 4.0f);
 
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);
@@ -100,6 +103,8 @@ int main() {
     Buffer<float> sdf_target(n_matrix[0], n_matrix[1], n_matrix[2]);
     Buffer<float> p0(3);
     Buffer<float> p1(3);
+    Buffer<float> p0_1(3);
+    Buffer<float> p1_1(3);
     Buffer<int32_t> n(n_matrix);
     Buffer<float> target_(width, height, 3);
     Buffer<float> loss_(1);
