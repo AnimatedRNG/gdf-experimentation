@@ -150,6 +150,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Input<int32_t> height{"height"};
     Input<int32_t> initial_debug{"initial_debug"};
 
+    Output<Buffer<float>> loss_{"loss_", 1};
     Output<Buffer<float>> forward_{"forward_", 3};
     Output<Buffer<float>> d_l_sdf_{"d_l_sdf_", 3};
     Output<Buffer<float>> d_l_translation_{"d_l_translation_", 1};
@@ -600,6 +601,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         forward_(x, y, 0) = fw_pass_fwd(x, y)[0];
         forward_(x, y, 1) = fw_pass_fwd(x, y)[1];
         forward_(x, y, 2) = fw_pass_fwd(x, y)[2];
+
+        loss_(x) = bw_pass.at("loss")();
 
         //schedule_forward_pass(fw_pass);
         //fw_pass_fwd.compute_root();

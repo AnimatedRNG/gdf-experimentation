@@ -75,15 +75,15 @@ int main() {
         0.0f, 0.0f, 0.0f
     };
     const float target_translation_[3] = {
-        1.0f, 2.0f, 3.0f
+        -1.0f, 0.0f, 2.0f
     };
 
     const int32_t n_matrix[3] = {
         128, 128, 128
     };
 
-    int width = 64;
-    int height = 64;
+    int width = 100;
+    int height = 100;
     int iterations = 900;
 
     //float p0_x, p0_y, p0_z, p1_x, p1_y, p1_z;
@@ -102,6 +102,7 @@ int main() {
     Buffer<float> p1(3);
     Buffer<int32_t> n(n_matrix);
     Buffer<float> target_(width, height, 3);
+    Buffer<float> loss_(1);
     Buffer<float> forward_(width, height, 3);
     Buffer<float> d_l_sdf_(n_matrix[0], n_matrix[1], n_matrix[2]);
     Buffer<float> d_l_translation_(3);
@@ -125,6 +126,9 @@ int main() {
 
     sdf_target.set_host_dirty();
     sdf_target.copy_to_device(halide_cuda_device_interface());
+
+    loss_.set_host_dirty();
+    loss_.copy_to_device(halide_cuda_device_interface());
 
     p0.set_host_dirty();
     p1.copy_to_device(halide_cuda_device_interface());
@@ -152,6 +156,7 @@ int main() {
                   sdf_target, p0, p1,
                   forward_, // dummy placeholder
                   width, height, 0,
+                  loss_,
                   target_, d_l_sdf_, d_l_translation_
 #ifdef DEBUG_TRACER
                   , debug, num_debug
@@ -182,6 +187,7 @@ int main() {
                       sdf_model, p0, p1,
                       target_,
                       width, height, 0,
+                      loss_,
                       forward_, d_l_sdf_, d_l_translation_
 #ifdef DEBUG_TRACER
                       , debug, num_debug
@@ -192,13 +198,6 @@ int main() {
 
         std::cout << "done with rendering; copying back now" << std::endl;
 
-        /*model_translation.copy_to_host();
-        std::cout << "before step -- model_translation " << model_translation(0) << " "
-                  << model_translation(1) << " "
-                  << model_translation(2) << std::endl;
-        model_translation.set_host_dirty();
-        model_translation.copy_to_device(halide_cuda_device_interface());*/
-
         adam.step();
 
         forward_.copy_to_host();
@@ -207,6 +206,11 @@ int main() {
         d_l_translation_.copy_to_host();
 
         model_translation.copy_to_host();
+
+        loss_.set_host_dirty();
+        loss_.copy_to_device(halide_cuda_device_interface());
+
+        std::cout << "loss " << loss_(0) << std::endl;
 
         std::cout << "d_l_translation " << d_l_translation_(0) << " "
                   << d_l_translation_(1) << " "
@@ -230,7 +234,7 @@ int main() {
                 << "tracing took "
                 << std::chrono::duration <float, std::milli> (diff).count()
                 << " ms"
-                << std::endl;
+                << std::endl << std::endl;
 
 #ifdef DEBUG_TRACER
         write_gifs(debug, iterations, num_debug(0));
