@@ -3,10 +3,11 @@
 import osqp
 from scipy.sparse import identity, csc_matrix, coo_matrix
 from scipy.signal import correlate2d
+from scipy import ndimage
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-sns.set(font_scale=2.0)
+sns.set(font_scale=0.5)
 
 
 def gen_sdf(f, dims, *args):
@@ -265,6 +266,86 @@ def optimize_correction(sd_field, gradient_update, C=1.0):
     plt.show()
 
 
+def fmm(sd_field, gradient_update):
+    w, h = sd_field.shape
+
+    sd = sd_field + gradient_update
+
+    # To begin with, we determine where the level set is
+    # level_set[i, j] is 1 if the cell is on the level set; 0 otherwise
+    level_set = np.zeros_like(sd, dtype=np.uint8)
+    for i in range(w):
+        for j in range(h):
+            min_val = sd[i, j]
+            max_val = sd[i, j]
+            bi = max(i - 1, 0), min(i + 2, w - 1)
+            bj = max(j - 1, 0), min(j + 2, h - 1)
+
+            for ii in range(bi[0], bi[1]):
+                for jj in range(bj[0], bj[1]):
+                    min_val = min(min_val, sd[ii, jj])
+                    max_val = max(max_val, sd[ii, jj])
+            level_set[i, j] = 1 if min_val <= 0 and max_val >= 0 else 0
+
+    new_field = np.ones_like(sd)
+    new_field *= np.inf
+    new_field[level_set == 1] = sd[level_set == 1]
+
+    # Uncomment to visualize level set
+    '''
+    plot(level_set)
+    plt.show()
+    '''
+
+    for k in range(300):
+        # Next we "dilate" the level set to get the neighbors of all the cells
+        # on the level set
+        dilated = ndimage.binary_dilation(
+            level_set,
+            structure=ndimage.generate_binary_structure(2, 2)
+        ).astype(np.uint8)
+        # We don't want to repeat this process on the original level set
+        dilated -= level_set
+
+        # Uncomment to visualize dilated regions
+        '''
+        plot(dilated)
+        plt.show()
+        '''
+
+        for i in range(w):
+            for j in range(h):
+                if dilated[i, j] != 1:
+                    continue
+
+                min_val = np.inf
+                actual_min_val = None
+                min_pos = None
+                bi = max(i - 1, 0), min(i + 2, w - 1)
+                bj = max(j - 1, 0), min(j + 2, h - 1)
+
+                for ii in range(bi[0], bi[1]):
+                    for jj in range(bj[0], bj[1]):
+                        if ii != i or jj != j:
+                            if abs(new_field[ii, jj]) < min_val:
+                                actual_min_val = new_field[ii, jj]
+                                min_val = abs(actual_min_val)
+                                min_pos = (ii, jj)
+                dist = np.sqrt((min_pos[0] - i) ** 2 + (min_pos[1] - j) ** 2)
+                # at each point that we are considering, we assign a distance value
+                # according to a neighbor with the smallest distance value plus
+                # our distance to that neighbor
+                new_field[i, j] = actual_min_val + \
+                    ((-1.0 * dist) if actual_min_val < 0 else dist)
+
+        # add these the dilated region back to the level set and start
+        # the process over again
+        level_set += dilated
+
+    plot(new_field, fmt=".1f")
+    plt.show()
+
+
 if __name__ == '__main__':
     dims = (32, 32)
 
@@ -278,4 +359,5 @@ if __name__ == '__main__':
     #gradient[18:22, 18:22] = 20.0
     gradient += (np.random.random((dims[0], dims[1])) - 0.5) * 1.0
 
-    optimize_correction(sdf, gradient)
+    #optimize_correction(sdf, gradient)
+    fmm(sdf, gradient)
