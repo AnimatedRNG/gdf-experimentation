@@ -117,9 +117,6 @@ int main() {
     view.set_host_dirty();
     view.copy_to_device(halide_cuda_device_interface());
 
-    model_translation.set_host_dirty();
-    model_translation.copy_to_device(halide_cuda_device_interface());
-
     target_translation.set_host_dirty();
     target_translation.copy_to_device(halide_cuda_device_interface());
 
@@ -174,9 +171,11 @@ int main() {
 
     sdf_model.set_host_dirty();
     sdf_model.copy_to_device(halide_cuda_device_interface());
-    for (int epoch = 0; epoch < 20; epoch++) {
+    for (int epoch = 0; epoch < 900; epoch++) {
         model_translation.set_host_dirty();
         model_translation.copy_to_device(halide_cuda_device_interface());
+
+        forward_.copy_to_device(halide_cuda_device_interface());
 
         start = std::chrono::steady_clock::now();
         tracer_render(projection, view, model_translation,
@@ -193,12 +192,12 @@ int main() {
 
         std::cout << "done with rendering; copying back now" << std::endl;
 
-        model_translation.copy_to_host();
+        /*model_translation.copy_to_host();
         std::cout << "before step -- model_translation " << model_translation(0) << " "
                   << model_translation(1) << " "
                   << model_translation(2) << std::endl;
         model_translation.set_host_dirty();
-        model_translation.copy_to_device(halide_cuda_device_interface());
+        model_translation.copy_to_device(halide_cuda_device_interface());*/
 
         adam.step();
 
@@ -238,6 +237,6 @@ int main() {
 #endif // DEBUG_TRACER
 
         convert_and_save_image(target_, "target.png");
-        convert_and_save_image(forward_, "model_" + std::to_string(epoch) + ".png");
+        convert_and_save_image(forward_, "model/model_" + std::to_string(epoch) + ".png");
     }
 }
