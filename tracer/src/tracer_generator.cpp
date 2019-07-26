@@ -138,7 +138,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
     Input<Buffer<float>> projection_{"projection", 2};
     Input<Buffer<float>> view_{"view", 2};
-    Input<Buffer<float>> translation_{"model", 1};
+    Input<Buffer<float>> transform_{"model", 2};
 
     Input<Buffer<float>> sdf_{"sdf_", 3};
     Input<Buffer<float>> p0_{"p0", 1};
@@ -153,7 +153,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
     Output<Buffer<float>> loss_{"loss_", 1};
     Output<Buffer<float>> forward_{"forward_", 3};
     Output<Buffer<float>> d_l_sdf_{"d_l_sdf_", 3};
-    Output<Buffer<float>> d_l_translation_{"d_l_translation_", 1};
+    Output<Buffer<float>> d_l_transform_{"d_l_transform_", 2};
 #ifdef DEBUG_TRACER
     Output<Func> debug_ {"debug", Float(32), 5};
     Output<Func> num_debug{"num_debug", Int(32), 1};
@@ -161,9 +161,6 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
     std::unordered_map<std::string, std::shared_ptr<GridSDF>> sb;
 
-    Func middle_func{"middle_func"};
-
-    Func model_transform{"identity"};
     Func dLoss_dSDF{"dLoss_dSDF"};
 
     std::map<std::string, std::vector<Func>> _tuplevec_unpacked;
@@ -387,17 +384,23 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         repacked_ray_vec = repack<3>(ray_vec);
 
         Func transformed_ray_pos("transformed_ray_pos_" + name);
-        transformed_ray_pos(x, y) = {
+        /*transformed_ray_pos(x, y) = {
             original_ray_pos(x, y)[0] + ray_transform(0),
             original_ray_pos(x, y)[1] + ray_transform(1),
             original_ray_pos(x, y)[2] + ray_transform(2)
-        };
+            };*/
+        transformed_ray_pos(x, y) =
+            apply_affine<3>(ray_transform,
+                            TupleVec<3>(original_ray_pos(x, y))).get();
 
-        pos(x, y, t) = repack<3>(transformed_ray_pos)(x, y);
+        //pos(x, y, t) = {0.0f, 0.0f, 0.0f};
+        //pos(x, y, 0) = repack<3>(transformed_ray_pos)(x, y);
+        pos(x, y, t) = transformed_ray_pos(x, y);
         d = trilinear<1>(sdf, TupleVec<3>(Tuple(pos(x, y, tr))))[0];
         //d = example_box(TupleVec<3>(pos(x, y, tr)));
         ds = to_render_dist(d);
         step = 1.0f / 100.0f;
+        //step = ds;
         pos(x, y, tr + 1) = (TupleVec<3>(pos(x, y, tr)) +
                              step * TupleVec<3>(repacked_ray_vec(x, y))).get();
 
@@ -492,14 +495,15 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         Func dLoss_dSDF;
         Func dLoss_dPos;
-        Func dLoss_dTranslation;
+        Func dLoss_dTransform;
         Func dLoss_dRayVec;
         Func dLoss_dVolumetricShaded;
         Func dLoss_dOpc;
         Func dLoss_dIntensity;
         dLoss_dSDF = dr(sdf.buffer);
         dLoss_dPos = dr(forward_map.at("pos"), 0);
-        dLoss_dTranslation = dr(forward_map.at("ray_transform"));
+        //dLoss_dPos = dr(forward_map.at("pos"), 0);
+        dLoss_dTransform = dr(forward_map.at("ray_transform"));
         dLoss_dRayVec = dr(forward_map.at("ray_vec"));
         dLoss_dOpc = dr(forward_map.at("opc"));
         dLoss_dVolumetricShaded = dr(forward_map.at("volumetric_shaded"), 0);
@@ -522,7 +526,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             {"loss", loss},
             {"dLoss_dSDF", dLoss_dSDF},
             {"dLoss_dPos", dLoss_dPos},
-            {"dLoss_dTranslation", dLoss_dTranslation},
+            {"dLoss_dTransform", dLoss_dTransform},
             {"dLoss_dRayVec", dLoss_dRayVec},
             {"dLoss_dVolumetricShaded", dLoss_dVolumetricShaded},
             {"dLoss_dOpc", dLoss_dOpc},
@@ -583,7 +587,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         Func end("end");
 
-        model_transform(x) = translation_(x);
+        Func model_transform{"model_transform"};
+        model_transform(x, y) = transform_(x, y);
 
         parameter_map fw_pass = forward_pass("model", grid_sdf, model_transform);
 
@@ -609,9 +614,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         //forward_.reorder(c, y, x).reorder_storage(c, y, x);
 
         d_l_sdf_(x, y, c) = bw_pass.at("dLoss_dSDF")(x, y, c);
-        d_l_translation_(x) = bw_pass.at("dLoss_dTranslation")(x);
+        d_l_transform_(x, y) = bw_pass.at("dLoss_dTransform")(x, y);
         //d_l_sdf_(x, y, c) = 0.0f;
-        //d_l_translation_(x) = 0.0f;
+        //d_l_transform_(x, y) = 0.0f;
 
         //record(target, true);
         //record(fw_pass.at("forward"), true);
@@ -656,7 +661,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             .dim(1).set_bounds_estimate(0, 4);
             view_.dim(0).set_bounds_estimate(0, 4)
             .dim(1).set_bounds_estimate(0, 4);
-            translation_.dim(0).set_bounds_estimate(0, 3);
+            transform_.dim(0).set_bounds_estimate(0, 4)
+            .dim(1).set_bounds_estimate(0, 4);
 
             p0_.dim(0).set_bounds_estimate(0, 3);
             p1_.dim(0).set_bounds_estimate(0, 3);
@@ -669,7 +675,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             .dim(1).set_bounds_estimate(0, 128)
             .dim(2).set_bounds_estimate(0, 128);
 
-            d_l_translation_.dim(0).set_bounds_estimate(0, 3);
+            d_l_transform_.dim(0).set_bounds_estimate(0, 4)
+            .dim(1).set_bounds_estimate(0, 4);
 
 #ifdef DEBUG_TRACER
             debug_
@@ -691,9 +698,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             //options.unroll_rvar_size = 10;
 
 #ifdef DEBUG_TRACER
-            std::vector<Func> output_func({forward_, d_l_sdf_, d_l_translation_, debug_, num_debug});
+            std::vector<Func> output_func({forward_, d_l_sdf_, d_l_transform_, debug_, num_debug});
 #else
-            std::vector<Func> output_func({forward_, d_l_sdf_, d_l_translation_});
+            std::vector<Func> output_func({forward_, d_l_sdf_, d_l_transform_});
 #endif // DEBUG_TRACER
             // applies simple GPU autoschedule to everything
             Halide::simple_autoschedule(
@@ -712,8 +719,10 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                 {"view_.extent.0", 4},
                 {"view_.min.1", 0},
                 {"view_.extent.1", 4},
-                {"translation_.extent.0", 3},
-                {"translation_.min.0", 0},
+                {"transform_.extent.0", 4},
+                {"transform_.min.0", 0},
+                {"transform_.extent.1", 4},
+                {"transform_.min.1", 0},
                 {"p0_.min.0", 0},
                 {"p0_.extent.0", 4},
                 {"p1_.min.0", 0},
@@ -732,7 +741,8 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                     {0, 128}
                 },
                 {
-                    {0, 3}
+                    {0, 4},
+                    {0, 4},
                 },
 #ifdef DEBUG_TRACER
                 {

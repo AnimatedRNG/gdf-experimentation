@@ -56,6 +56,83 @@ void write_gifs(
     free(buffer);
 }
 
+void mat_mul(float m1[4][4], float m2[4][4], float out[4][4]) {
+    float tmp[4][4];
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            tmp[i][j] = 0.0f;
+            for (int k = 0; k < 4; k++) {
+                tmp[i][j] += m1[i][k] * m2[k][j];
+            }
+        }
+    }
+
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            out[i][j] = tmp[i][j];
+        }
+    }
+}
+
+void identity(float matrix[4][4]) {
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            if (i == j) {
+                matrix[i][j] = 1.0f;
+            } else {
+                matrix[i][j] = 0.0f;
+            }
+        }
+    }
+}
+
+void apply_rotation(float matrix[4][4], float heading, float attitude, float bank) {
+    float ch = cos(heading);
+    float sh = sin(heading);
+    float ca = cos(attitude);
+    float sa = sin(attitude);
+    float cb = cos(bank);
+    float sb = sin(bank);
+
+    float m2[4][4] = {0.0f};
+    m2[0][0] = ch * ca;
+    m2[1][0] = sh*sb - ch*sa*cb;
+    m2[2][0] = ch*sa*sb + sh*cb;
+    m2[0][1] = sa;
+    m2[1][1] = ca*cb;
+    m2[2][1] = -ca*sb;
+    m2[0][2] = -sh*ca;
+    m2[1][2] = sh*sa*cb + ch*sb;
+    m2[2][2] = -sh*sa*sb + ch*cb;
+    m2[3][3] = 1.0f;
+
+    mat_mul(matrix, m2, matrix);
+}
+
+void apply_translation(float matrix[4][4], float x, float y, float z) {
+    float m2[4][4] = {0.0f};
+
+    m2[3][0] = x;
+    m2[3][1] = y;
+    m2[3][2] = z;
+
+    m2[0][0] = 1.0f;
+    m2[1][1] = 1.0f;
+    m2[2][2] = 1.0f;
+    m2[3][3] = 1.0f;
+
+    mat_mul(matrix, m2, matrix);
+}
+
+void print_matrix(Buffer<float> matrix) {
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            std::cout << matrix(i, j) << " ";
+        }
+        std::cout << std::endl;
+    }
+}
+
 int main() {
     const float projection_matrix[4][4] = {
         {0.75, 0.0, 0.0,  0.0},
@@ -71,12 +148,19 @@ int main() {
         {-0.3166, 1.1503, 8.8977, 1.0}
     };
 
-    const float model_translation_[3] = {
+    float target_transform_[4][4] = {0.0f};
+    identity(target_transform_);
+    apply_translation(target_transform_, 1.0f, 0.0f, 0.0f);
+    //apply_rotation(target_transform_, 3.14f / 4.0f, 0.0f, 0.0f);
+
+    /*const float model_translation_[3] = {
         0.0f, 0.0f, 0.0f
     };
     const float target_translation_[3] = {
         -1.0f, 0.0f, 2.0f
-    };
+        };*/
+    float model_transform_[4][4] = {0.0f};
+    identity(model_transform_);
 
     const int32_t n_matrix[3] = {
         128, 128, 128
@@ -110,12 +194,15 @@ int main() {
     Buffer<float> loss_(1);
     Buffer<float> forward_(width, height, 3);
     Buffer<float> d_l_sdf_(n_matrix[0], n_matrix[1], n_matrix[2]);
-    Buffer<float> d_l_translation_(3);
+    Buffer<float> d_l_transform_(4, 4);
 
-    Buffer<float> model_translation(model_translation_);
-    Buffer<float> target_translation(target_translation_);
+    //Buffer<float> model_translation(model_translation_);
+    //Buffer<float> target_translation(target_translation_);
+    Buffer<float> model_transform(model_transform_);
+    Buffer<float> target_transform(target_transform_);
 
-    ADAM adam(model_translation, d_l_translation_);
+    //ADAM adam(model_translation, d_l_translation_);
+    ADAM adam(model_transform, d_l_transform_, 1e-2);
 
     projection.set_host_dirty();
     projection.copy_to_device(halide_cuda_device_interface());
@@ -123,8 +210,10 @@ int main() {
     view.set_host_dirty();
     view.copy_to_device(halide_cuda_device_interface());
 
-    target_translation.set_host_dirty();
-    target_translation.copy_to_device(halide_cuda_device_interface());
+    //target_translation.set_host_dirty();
+    //target_translation.copy_to_device(halide_cuda_device_interface());
+    target_transform.set_host_dirty();
+    target_transform.copy_to_device(halide_cuda_device_interface());
 
     sdf_model.set_host_dirty();
     sdf_model.copy_to_device(halide_cuda_device_interface());
@@ -157,12 +246,12 @@ int main() {
 
     start = std::chrono::steady_clock::now();
 
-    tracer_render(projection, view, target_translation,
+    tracer_render(projection, view, target_transform,
                   sdf_target, p0, p1,
                   forward_, // dummy placeholder
                   width, height, 0,
                   loss_,
-                  target_, d_l_sdf_, d_l_translation_
+                  target_, d_l_sdf_, d_l_transform_
 #ifdef DEBUG_TRACER
                   , debug, num_debug
 #endif //DEBUG_TRACER
@@ -182,18 +271,21 @@ int main() {
     sdf_model.set_host_dirty();
     sdf_model.copy_to_device(halide_cuda_device_interface());
     for (int epoch = 0; epoch < 900; epoch++) {
-        model_translation.set_host_dirty();
-        model_translation.copy_to_device(halide_cuda_device_interface());
+        std::cout << "epoch " << epoch << std::endl;
+        //model_translation.set_host_dirty();
+        //model_translation.copy_to_device(halide_cuda_device_interface());
+        model_transform.set_host_dirty();
+        model_transform.copy_to_device(halide_cuda_device_interface());
 
         forward_.copy_to_device(halide_cuda_device_interface());
 
         start = std::chrono::steady_clock::now();
-        tracer_render(projection, view, model_translation,
+        tracer_render(projection, view, model_transform,
                       sdf_model, p0, p1,
                       target_,
                       width, height, 0,
                       loss_,
-                      forward_, d_l_sdf_, d_l_translation_
+                      forward_, d_l_sdf_, d_l_transform_
 #ifdef DEBUG_TRACER
                       , debug, num_debug
 #endif //DEBUG_TRACER
@@ -208,25 +300,28 @@ int main() {
         forward_.copy_to_host();
         target_.copy_to_host();
         d_l_sdf_.copy_to_host();
-        d_l_translation_.copy_to_host();
+        d_l_transform_.copy_to_host();
 
-        model_translation.copy_to_host();
+        //model_translation.copy_to_host();
+        model_transform.copy_to_host();
 
         loss_.set_host_dirty();
         loss_.copy_to_device(halide_cuda_device_interface());
 
         std::cout << "loss " << loss_(0) << std::endl;
 
-        std::cout << "d_l_translation " << d_l_translation_(0) << " "
+        /*std::cout << "d_l_translation " << d_l_translation_(0) << " "
                   << d_l_translation_(1) << " "
-                  << d_l_translation_(2) << std::endl;
+                  << d_l_translation_(2) << std::endl;*/
+        print_matrix(d_l_transform_);
 
-        d_l_translation_.set_host_dirty();
-        d_l_translation_.copy_to_device(halide_cuda_device_interface());
+        d_l_transform_.set_host_dirty();
+        d_l_transform_.copy_to_device(halide_cuda_device_interface());
 
-        std::cout << "model_translation " << model_translation(0) << " "
+        /*std::cout << "model_translation " << model_translation(0) << " "
                   << model_translation(1) << " "
-                  << model_translation(2) << std::endl;
+                  << model_translation(2) << std::endl;*/
+        print_matrix(model_transform);
 
 #ifdef DEBUG_TRACER
         debug.copy_to_host();

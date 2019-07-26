@@ -204,12 +204,14 @@ class TupleVec final {
     TupleVec(TupleVec&& other) : _data(other._data)  {}
 
     // Replace with default?
-    TupleVec& operator=(TupleVec const& other) {
+    /*TupleVec& operator=(TupleVec const& other) {
         _data = other._data;
     }
     TupleVec& operator=(TupleVec&& other) {
         _data = other._data;
-    };
+        };*/
+    TupleVec& operator=(TupleVec const& other) = default;
+    TupleVec& operator=(TupleVec&& other) = default;
 
     Tuple const& get() const {
         return _data;
@@ -605,4 +607,43 @@ inline Tuple apply(Tuple const& vec, std::function<Expr(const Expr&, unsigned in
 template <unsigned int N>
 inline TupleVec<N> apply(TupleVec<N> const& vec, std::function<Expr(const Expr&, unsigned int)> f) {
     return TupleVec<N>(apply(vec.get(), f));
+}
+
+template <unsigned int N>
+inline TupleVec<N> matrix_vector(Func const& rhs, TupleVec<N> const& lhs) {
+    std::vector<Var> args = rhs.args();
+
+    std::vector<Expr> result(N, Expr(0.0f));
+
+    for (int j = 0; j < N; j++) {
+        for (int i = 0; i < N; i++) {
+            result[i] += rhs(i, j) * lhs[j];
+        }
+    }
+
+    return TupleVec<N>(Tuple(result));
+}
+
+template <unsigned int N>
+inline TupleVec<N> apply_affine(Func const& rhs, TupleVec<N> const& lhs) {
+    std::vector<Expr> l2 = lhs.get().as_vector();
+    l2.push_back(Expr(1.0f));
+    Tuple l2_tup(l2);
+    TupleVec<N+1> l2_tupvec(l2_tup);
+
+
+    TupleVec<N+1> homogeneous(matrix_vector<4>(rhs, l2_tupvec));
+    TupleVec<N+1> affine_divide(homogeneous / homogeneous[N]);
+
+    std::vector<Expr> affine_vec;
+    for (int i = 0; i < N; i++) {
+        affine_vec.push_back(affine_divide[i] / affine_divide[N]);
+    }
+
+    return TupleVec<N>(Tuple(affine_vec));
+}
+
+template <unsigned int N>
+inline TupleVec<N> operator*(Func const& rhs, TupleVec<N> const& lhs) {
+    return matrix_vector<N>(rhs, lhs);
 }
