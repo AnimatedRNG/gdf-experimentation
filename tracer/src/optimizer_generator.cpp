@@ -52,13 +52,27 @@ class OptimizerGenerator : public Halide::Generator<OptimizerGenerator> {
 
         f_output_(x) = f_(x) - adapted_learning_rate() * exp_avg_out(x) / denom(x);
         //f_output_(x) = f_(x) - lr * gradient_(x);
+        //f_output_(x) = f_(x) - 0.01f;
+        //f_output_(x) = gradient_(x);
 
         exp_avg_out_(x) = exp_avg_out(x);
         exp_avg_sq_out_(x) = exp_avg_sq_out(x);
 
         std::vector<Func> output_func({f_output_, exp_avg_out_, exp_avg_sq_out_});
 
-        Halide::SimpleAutoscheduleOptions options;
+        f_.dim(0).set_bounds_estimate(0, 100);
+        gradient_.dim(0).set_bounds_estimate(0, 100);
+        exp_avg.dim(0).set_bounds_estimate(0, 100);
+        exp_avg_sq.dim(0).set_bounds_estimate(0, 100);
+
+        f_output_.estimate(x, 0, 100);
+        exp_avg_out_.estimate(x, 0, 100);
+        exp_avg_sq_out_.estimate(x, 0, 100);
+
+        Pipeline p(output_func);
+        p.auto_schedule(this->get_target());
+
+        /*Halide::SimpleAutoscheduleOptions options;
         options.gpu = get_target().has_gpu_feature();
         options.gpu_tile_channel = 1;
         options.unroll_rvar_size = 128;
@@ -82,7 +96,7 @@ class OptimizerGenerator : public Halide::Generator<OptimizerGenerator> {
                 {0, 128 * 128 * 128},
             }
         },
-        options);
+        options);*/
     }
 
   private:

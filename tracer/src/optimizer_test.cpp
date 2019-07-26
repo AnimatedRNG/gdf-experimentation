@@ -15,20 +15,26 @@ using namespace Halide::Runtime;
 using namespace Halide::Tools;
 
 int main() {
-    float expected_params_m[1][5] = {{0.9990, 1.0010, 0.9990, 0.9990, 1.0010}};
+    float expected_params_m[2][5] = {{0.9990, 1.0010, 0.9990, 0.9990, 1.0010}};
     Buffer<float> expected_params(expected_params_m);
 
-    float initial_params_m[1][5] = {{1.0f, 1.0f, 1.0f, 1.0f, 1.0f}};
+    float initial_params_m[2][5] = {
+        {1.0f, 1.0f, 1.0f, 1.0f, 1.0f},
+        {1.0f, 1.0f, 1.0f, 1.0f, 1.0f}
+    };
     Buffer<float> initial_params(initial_params_m);
 
-    float initial_grad_m[1][5] = {{0.02574085, -0.26188788, 0.5158403, 0.5158403, -10.2624}};
+    float initial_grad_m[2][5] = {
+        {0.02574085, -0.26188788, 0.5158403, 0.5158403, -10.2624},
+        {-0.26188788, 0.02574085, -10.2624, 0.5158403, 0.5158403}
+    };
     Buffer<float> initial_grad(initial_grad_m);
 
-    initial_params.set_host_dirty();
-    initial_params.copy_to_device(halide_cuda_device_interface());
+    //initial_params.set_host_dirty();
+    //initial_params.copy_to_device(halide_cuda_device_interface());
 
-    initial_grad.set_host_dirty();
-    initial_grad.copy_to_device(halide_cuda_device_interface());
+    //initial_grad.set_host_dirty();
+    //initial_grad.copy_to_device(halide_cuda_device_interface());
 
     ADAM adam(initial_params, initial_grad);
 
@@ -46,11 +52,14 @@ int main() {
             << " ms"
             << std::endl;
 
-    initial_params.copy_to_host();
+    //initial_params.copy_to_host();
 
-    std::cout << "final parameters are ";
-    for (int i = 0; i < 5; i++) {
-        //std::cout << initial_params(i, 0) << " ";
-        assert(std::abs(initial_params(i, 0) - expected_params(i)) < 1e-5f);
+    std::cout << "final parameters are " << std::endl;
+    for (int j = 0; j < 2; j++) {
+        for (int i = 0; i < 5; i++) {
+            std::cout << initial_params(i, j) << " ";
+            //assert(std::abs(initial_params(i, 0) - expected_params(i)) < 1e-5f);
+        }
+        std::cout << std::endl;
     }
 }

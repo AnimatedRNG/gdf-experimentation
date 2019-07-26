@@ -383,6 +383,13 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Expr step("step_" + name);
         repacked_ray_vec = repack<3>(ray_vec);
 
+        Func affine_ray_transform("affine_ray_transform_" + name);
+        affine_ray_transform(x, y) = ray_transform(x, y);
+        affine_ray_transform(3, 0) = 0.0f;
+        affine_ray_transform(3, 1) = 0.0f;
+        affine_ray_transform(3, 2) = 0.0f;
+        affine_ray_transform(3, 3) = 1.0f;
+
         Func transformed_ray_pos("transformed_ray_pos_" + name);
         /*transformed_ray_pos(x, y) = {
             original_ray_pos(x, y)[0] + ray_transform(0),
@@ -390,7 +397,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             original_ray_pos(x, y)[2] + ray_transform(2)
             };*/
         transformed_ray_pos(x, y) =
-            apply_affine<3>(ray_transform,
+            apply_affine<3>(affine_ray_transform,
                             TupleVec<3>(original_ray_pos(x, y))).get();
 
         //pos(x, y, t) = {0.0f, 0.0f, 0.0f};
@@ -454,6 +461,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             {"origin", origin},
 
             {"ray_transform", ray_transform},
+            {"affine_ray_transform", affine_ray_transform},
 
             {"pos", pos},
             {"dist", dist},
@@ -546,6 +554,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         fw.at("ray_vec").reorder_storage(y, x);;
 
         fw.at("ray_transform").compute_root();
+        fw.at("affine_ray_transform").compute_root();
         fw.at("transformed_ray_pos").compute_root();
 
         fw.at("pos").reorder(t, y, x).reorder_storage(t, y, x)
@@ -762,11 +771,11 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             //print_func_dependencies(dr.funcs(sb->buffer).at(0).function());
 
             // sets every dependency to compute_root its ancestor
-            /*for (auto entry : sb) {
+            for (auto entry : sb) {
                 apply_auto_schedule(entry.second->buffer);
             }
             apply_auto_schedule(projection_);
-            apply_auto_schedule(view_);*/
+            apply_auto_schedule(view_);
         }
     }
 };

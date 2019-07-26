@@ -15,6 +15,7 @@
 #include "optimizer_gen.h"
 #include "read_sdf.hpp"
 #include "debug.hpp"
+#include "buffer_utils.hpp"
 
 using namespace Halide::Runtime;
 using namespace Halide::Tools;
@@ -124,7 +125,7 @@ void apply_translation(float matrix[4][4], float x, float y, float z) {
     mat_mul(matrix, m2, matrix);
 }
 
-void print_matrix(Buffer<float> matrix) {
+void print_matrix(const Buffer<float>& matrix) {
     for (int i = 0; i < 4; i++) {
         for (int j = 0; j < 4; j++) {
             std::cout << matrix(i, j) << " ";
@@ -133,7 +134,18 @@ void print_matrix(Buffer<float> matrix) {
     }
 }
 
+// this is awful
+void copy(const Buffer<float>& a, Buffer<float>& b) {
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            b(i, j) = a(i, j);
+        }
+    }
+}
+
 int main() {
+    const halide_device_interface_t* interface = halide_cuda_device_interface();
+
     const float projection_matrix[4][4] = {
         {0.75, 0.0, 0.0,  0.0},
         {0.0,  1.0, 0.0,  0.0},
@@ -150,8 +162,9 @@ int main() {
 
     float target_transform_[4][4] = {0.0f};
     identity(target_transform_);
-    apply_translation(target_transform_, 1.0f, 0.0f, 0.0f);
-    //apply_rotation(target_transform_, 3.14f / 4.0f, 0.0f, 0.0f);
+    //apply_translation(target_transform_, 1.0f, 2.0f, 2.0f);
+    //apply_rotation(target_transform_, 0.0f, -1.0f, 0.0f);
+    apply_translation(target_transform_, 0.0f, 2.0f, -3.0f);
 
     /*const float model_translation_[3] = {
         0.0f, 0.0f, 0.0f
@@ -202,30 +215,22 @@ int main() {
     Buffer<float> target_transform(target_transform_);
 
     //ADAM adam(model_translation, d_l_translation_);
-    ADAM adam(model_transform, d_l_transform_, 1e-2);
+    ADAM adam(model_transform, d_l_transform_, 1e-2f);
 
-    projection.set_host_dirty();
-    projection.copy_to_device(halide_cuda_device_interface());
+    to_device(projection, interface);
 
-    view.set_host_dirty();
-    view.copy_to_device(halide_cuda_device_interface());
+    to_device(view, interface);
 
-    //target_translation.set_host_dirty();
-    //target_translation.copy_to_device(halide_cuda_device_interface());
-    target_transform.set_host_dirty();
-    target_transform.copy_to_device(halide_cuda_device_interface());
+    to_device(target_transform, interface);
 
-    sdf_model.set_host_dirty();
-    sdf_model.copy_to_device(halide_cuda_device_interface());
+    to_device(sdf_model, interface);
 
-    sdf_target.set_host_dirty();
-    sdf_target.copy_to_device(halide_cuda_device_interface());
+    to_device(sdf_target, interface);
 
-    loss_.set_host_dirty();
-    loss_.copy_to_device(halide_cuda_device_interface());
+    //to_device(loss_, interface);
 
-    p0.set_host_dirty();
-    p1.copy_to_device(halide_cuda_device_interface());
+    to_device(p0, interface);
+    to_device(p1, interface);
 
     auto start = std::chrono::steady_clock::now();
     sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], sdf_model, p0, p1);
@@ -268,19 +273,23 @@ int main() {
             << " ms"
             << std::endl << std::endl;
 
-    sdf_model.set_host_dirty();
-    sdf_model.copy_to_device(halide_cuda_device_interface());
+    to_device(sdf_model, interface);
     for (int epoch = 0; epoch < 900; epoch++) {
         std::cout << "epoch " << epoch << std::endl;
-        //model_translation.set_host_dirty();
-        //model_translation.copy_to_device(halide_cuda_device_interface());
-        model_transform.set_host_dirty();
-        model_transform.copy_to_device(halide_cuda_device_interface());
 
-        forward_.copy_to_device(halide_cuda_device_interface());
+        std::cout << "before render " <<
+            (float*) ((halide_buffer_t*) model_transform)->host << " " << std::endl;
+            print_matrix(model_transform);
+
+        Buffer<float> model_transform_copy(4, 4);
+        copy(model_transform, model_transform_copy);
+
+        //to_device(model_transform, interface);
+        to_device(model_transform_copy, interface);
+        to_device(forward_, interface);
 
         start = std::chrono::steady_clock::now();
-        tracer_render(projection, view, model_transform,
+        tracer_render(projection, view, model_transform_copy,
                       sdf_model, p0, p1,
                       target_,
                       width, height, 0,
@@ -293,34 +302,41 @@ int main() {
         end = std::chrono::steady_clock::now();
         diff = end - start;
 
+        //to_host(model_transform);
+        std::cout << "after render: before optimization " <<
+            (float*) ((halide_buffer_t*) model_transform)->host << " " << std::endl;
+        print_matrix(model_transform);
+        //model_transform.set_host_dirty();
+        //model_transform.copy_to_device(halide_cuda_device_interface());
+
         std::cout << "done with rendering; copying back now" << std::endl;
+
+        to_host(d_l_transform_);
 
         adam.step();
 
-        forward_.copy_to_host();
-        target_.copy_to_host();
-        d_l_sdf_.copy_to_host();
-        d_l_transform_.copy_to_host();
+        to_host(forward_);
+        to_host(target_);
+        //d_l_sdf_.copy_to_host();
 
-        //model_translation.copy_to_host();
-        model_transform.copy_to_host();
-
-        loss_.set_host_dirty();
-        loss_.copy_to_device(halide_cuda_device_interface());
+        //to_host(loss_);
 
         std::cout << "loss " << loss_(0) << std::endl;
+
+        //to_device(loss_, interface);
 
         /*std::cout << "d_l_translation " << d_l_translation_(0) << " "
                   << d_l_translation_(1) << " "
                   << d_l_translation_(2) << std::endl;*/
+        std::cout << "d_l_transform: " << std::endl;
         print_matrix(d_l_transform_);
 
-        d_l_transform_.set_host_dirty();
-        d_l_transform_.copy_to_device(halide_cuda_device_interface());
+        to_device(d_l_transform_, interface);
 
         /*std::cout << "model_translation " << model_translation(0) << " "
                   << model_translation(1) << " "
                   << model_translation(2) << std::endl;*/
+        std::cout << "model: " << std::endl;
         print_matrix(model_transform);
 
 #ifdef DEBUG_TRACER

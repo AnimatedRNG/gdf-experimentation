@@ -43,15 +43,17 @@ class ADAM {
                                        {params_.number_of_elements()});
         Buffer<float> gradient_flattened(gradient_.data(),
                                          {gradient_.number_of_elements()});
-        params_flattened.set_host_dirty();
+        /*params_flattened.set_host_dirty();
         params_flattened.copy_to_device(halide_cuda_device_interface());
         gradient_flattened.set_host_dirty();
-        gradient_flattened.copy_to_device(halide_cuda_device_interface());
+        gradient_flattened.copy_to_device(halide_cuda_device_interface());*/
 
         Buffer<float> exp_avg_out(num_elems);
         Buffer<float> exp_avg_sq_out(num_elems);
 
         Buffer<float> output_params_flattened(num_elems);
+        //output_params_flattened.set_host_dirty();
+        //output_params_flattened.copy_to_device(halide_cuda_device_interface());
 
         optimizer_gen(params_flattened, gradient_flattened,
                       lr_, beta_1_, beta_2_, weight_decay_, eps_,
@@ -65,13 +67,16 @@ class ADAM {
         //gradient_.reshape(sizes);
 
         // TODO: remove copies at some point!
-        output_params_flattened.copy_to_host();
+        //output_params_flattened.copy_to_host();
 
         Buffer<float> output_params(output_params_flattened.data(), sizes);
-        params_ = std::move(output_params);
+        //params_ = std::move(output_params);
+        params_.copy_from(output_params);
 
-        exp_avg_ = Buffer<float>(exp_avg_out.data(), num_elems);
-        exp_avg_sq_ = Buffer<float>(exp_avg_sq_out.data(), num_elems);
+        //exp_avg_ = Buffer<float>(exp_avg_out.data(), num_elems);
+        //exp_avg_sq_ = Buffer<float>(exp_avg_sq_out.data(), num_elems);
+        exp_avg_.copy_from(exp_avg_out);
+        exp_avg_sq_.copy_from(exp_avg_sq_out);
     }
 
   private:
