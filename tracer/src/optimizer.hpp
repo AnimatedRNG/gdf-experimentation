@@ -37,37 +37,41 @@ class ADAM {
     }
 
     inline void step() {
-        Buffer<float> params_flattened(params_.data(), {num_elems});
-        Buffer<float> gradient_flattened(gradient_.data(), {num_elems});
+        //params_.flatten();
+        //gradient_.flatten();
+        Buffer<float> params_flattened(params_.data(),
+                                       {params_.number_of_elements()});
+        Buffer<float> gradient_flattened(gradient_.data(),
+                                         {gradient_.number_of_elements()});
+        params_flattened.set_host_dirty();
+        params_flattened.copy_to_device(halide_cuda_device_interface());
+        gradient_flattened.set_host_dirty();
+        gradient_flattened.copy_to_device(halide_cuda_device_interface());
 
         Buffer<float> exp_avg_out(num_elems);
         Buffer<float> exp_avg_sq_out(num_elems);
-
-        // TODO: remove copies at some point!
-        params_flattened.set_host_dirty();
-        params_flattened.copy_to_device(halide_cuda_device_interface());
-
-        gradient_flattened.set_host_dirty();
-        gradient_flattened.copy_to_device(halide_cuda_device_interface());
 
         Buffer<float> output_params_flattened(num_elems);
 
         optimizer_gen(params_flattened, gradient_flattened,
                       lr_, beta_1_, beta_2_, weight_decay_, eps_,
-                      ++iterations,
+                      (float) (++iterations),
                       exp_avg_, exp_avg_sq_,
                       exp_avg_out, exp_avg_sq_out,
                       output_params_flattened
-                     );
+                      );
+        //output_params_flattened.reshape(sizes);
+        //params_.reshape(sizes);
+        //gradient_.reshape(sizes);
 
         // TODO: remove copies at some point!
         output_params_flattened.copy_to_host();
 
         Buffer<float> output_params(output_params_flattened.data(), sizes);
-        params_ = output_params;
+        params_ = std::move(output_params);
 
-        exp_avg_ = Buffer<float>(exp_avg_out.data(), sizes);
-        exp_avg_sq_ = Buffer<float>(exp_avg_sq_out.data(), sizes);
+        exp_avg_ = Buffer<float>(exp_avg_out.data(), num_elems);
+        exp_avg_sq_ = Buffer<float>(exp_avg_sq_out.data(), num_elems);
     }
 
   private:

@@ -51,7 +51,8 @@ class OptimizerGenerator : public Halide::Generator<OptimizerGenerator> {
         adapted_learning_rate() = lr * bias_correction1() / Halide::sqrt(bias_correction2());
 
         f_output_(x) = f_(x) - adapted_learning_rate() * exp_avg_out(x) / denom(x);
-        //f_output_(x) = adapted_learning_rate();
+        //f_output_(x) = f_(x) - lr * gradient_(x);
+
         exp_avg_out_(x) = exp_avg_out(x);
         exp_avg_sq_out_(x) = exp_avg_sq_out(x);
 

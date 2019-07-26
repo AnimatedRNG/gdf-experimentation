@@ -15,13 +15,13 @@ using namespace Halide::Runtime;
 using namespace Halide::Tools;
 
 int main() {
-    float expected_params_m[] = {0.9990, 1.0010, 0.9990, 0.9990, 1.0010};
+    float expected_params_m[1][5] = {{0.9990, 1.0010, 0.9990, 0.9990, 1.0010}};
     Buffer<float> expected_params(expected_params_m);
 
-    float initial_params_m[] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    float initial_params_m[1][5] = {{1.0f, 1.0f, 1.0f, 1.0f, 1.0f}};
     Buffer<float> initial_params(initial_params_m);
 
-    float initial_grad_m[] = {0.02574085, -0.26188788, 0.5158403, 0.5158403, -10.2624};
+    float initial_grad_m[1][5] = {{0.02574085, -0.26188788, 0.5158403, 0.5158403, -10.2624}};
     Buffer<float> initial_grad(initial_grad_m);
 
     initial_params.set_host_dirty();
@@ -48,9 +48,9 @@ int main() {
 
     initial_params.copy_to_host();
 
-    //std::cout << "final parameters are ";
+    std::cout << "final parameters are ";
     for (int i = 0; i < 5; i++) {
-        //std::cout << initial_params(i) << " ";
-        assert(std::abs(initial_params(i) - expected_params(i)) < 1e-5f);
+        //std::cout << initial_params(i, 0) << " ";
+        assert(std::abs(initial_params(i, 0) - expected_params(i)) < 1e-5f);
     }
 }
