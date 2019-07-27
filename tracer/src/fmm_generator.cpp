@@ -14,9 +14,10 @@ using namespace Halide;
 
 class FMMGenerator : public Halide::Generator<FMMGenerator> {
   public:
-    Input<Func> sdf_{"sdf", Float(32), 3};
-    Input<Func> p0_{"p0", Float(32), 1};
-    Input<Func> p1_{"p1", Float(32), 1};
+    //Input<Func> sdf_{"sdf", Float(32), 3};
+    Input<Buffer<float>> sdf_{"sdf", 3};
+    Input<Buffer<float>> p0_{"p0", 1};
+    Input<Buffer<float>> p1_{"p1", 1};
     Input<int32_t> d0{"d0"};
     Input<int32_t> d1{"d1"};
     Input<int32_t> d2{"d2"};
@@ -70,16 +71,17 @@ class FMMGenerator : public Halide::Generator<FMMGenerator> {
         // neighborhood around each voxel
         RDom r(0, 3, 0, 3, 0, 3, "r");
 
-        //Expr all_iters = max(max(d0, d1), d2);
         Expr all_iters = cast<int32_t>(Halide::sqrt(
                                            cast<float>(d0 * d0 + d1 * d1 + d2 * d2)));
         RDom it(0, all_iters);
 
         Func level_set_min("level_set_min");
-        level_set_min(x, y, z) = minimum(clamped(x + r.x - 1, y + r.y - 1, z + r.z - 1));
+        level_set_min(x, y, z) = minimum(clamped(x + r.x - 1, y + r.y - 1,
+                                         z + r.z - 1));
 
         Func level_set_max("level_set_max");
-        level_set_max(x, y, z) = maximum(clamped(x + r.x - 1, y + r.y - 1, z + r.z - 1));
+        level_set_max(x, y, z) = maximum(clamped(x + r.x - 1, y + r.y - 1,
+                                         z + r.z - 1));
 
         Func level_set("level_set");
         // level set involves a zero crossing
@@ -198,18 +200,54 @@ class FMMGenerator : public Halide::Generator<FMMGenerator> {
                    sdf_iterative(rd.x, rd.y, rd.z, rd.w)
                   );
 
-        //sdf_output_(x, y, z) = cast<float>(considered(x, y, z, 2));
-        //sdf_output_(x, y, z) = cast<float>(next_iter(x, y, z, 2));
         sdf_output_(x, y, z) = sdf_iterative(x, y, z, all_iters);
-        //sdf_output_(x, y, z) = max(0.0f, sdf_iterative(x, y, z, 4));
-        //sdf_output_(x, y, z) = cast<float>(level_set(x, y, z));
-        //sdf_output_(x, y, z) = clamped(x, y, z);
-        apply_auto_schedule(sdf_output_);
+
+        /*clamped.compute_inline();
+        level_set_min.compute_at(level_set, xi);
+        level_set_max.compute_at(level_set, xi);
+        level_set.gpu_tile(x, y, xo, yo, xi, yi, 64, 64).vectorize(xi);
+        level_set.compute_root();
+        considered.gpu_tile(x, y, xo, yo, xi, yi, 64, 64).vectorize(xi);
+        considered.compute_at(next_iter, x);
+        next_iter.compute_at(sdf_iterative, rd.x);
+        sdf_iterative.gpu_tile(x, y, xo, yo, xi, yi, 64, 64).vectorize(xi);
+        sdf_iterative.compute_at(sdf_output_, x);*/
+
+        apply_auto_schedule(sdf_iterative);
+
+        // Won't work because we can't prove associativity
+        /*considered
+            .update(0)
+            .reorder(rd.x, rd.y, rd.z, rd.w)
+            .allow_race_conditions()
+            .split(rd.x, xo, xi, 32)
+            .split(rd.y, yo, yi, 32)
+            .split(rd.z, zo, zi, 32)
+            .parallel(xi)
+            .parallel(yi)
+            .parallel(zi)
+            .reorder(xi, yi, zi, xo, yo, zo)
+            .gpu_blocks(xo, yo, zo)
+            .gpu_threads(xi, yi, zi);
+
+        sdf_iterative
+            .update(1)
+            .reorder(rd.x, rd.y, rd.z, rd.w)
+            .allow_race_conditions()
+            .split(rd.x, xo, xi, 32)
+            .split(rd.y, yo, yi, 32)
+            .split(rd.z, zo, zi, 32)
+            .parallel(xi)
+            .parallel(yi)
+            .parallel(zi)
+            .reorder(xi, yi, zi, xo, yo, zo)
+            .gpu_blocks(xo, yo, zo)
+            .gpu_threads(xi, yi, zi);*/
 
         /*Halide::SimpleAutoscheduleOptions options;
         options.gpu = get_target().has_gpu_feature();
         options.gpu_tile_channel = 1;
-        options.unroll_rvar_size = 128;
+        //options.unroll_rvar_size = 128;
 
         std::vector<Func> output_func({sdf_output_});
 
@@ -221,6 +259,10 @@ class FMMGenerator : public Halide::Generator<FMMGenerator> {
             {"sdf_.extent.1", 128},
             {"sdf_.min.2", 0},
             {"sdf_.extent.2", 128},
+            {"p0_.min.1", 0},
+            {"p0_.extent.1", 3},
+            {"p1_.min.1", 0},
+            {"p1_.extent.1", 3},
         }, {
             {
                 {0, 128},
@@ -229,10 +271,24 @@ class FMMGenerator : public Halide::Generator<FMMGenerator> {
             }
         },
         options);*/
+
+        /*sdf_.dim(0).set_bounds_estimate(32, 128)
+        .dim(1).set_bounds_estimate(32, 128)
+        .dim(2).set_bounds_estimate(32, 128);
+        p0_.dim(0).set_bounds_estimate(0, 4);
+        p1_.dim(0).set_bounds_estimate(0, 4);
+        sdf_output_.estimate(x, 32, 128)
+        .estimate(y, 32, 128)
+        .estimate(z, 32, 128);
+
+        std::vector<Func> output_func({sdf_output_});
+        Pipeline pipeline(output_func);
+        pipeline.auto_schedule(this->get_target());*/
     }
 
   private:
-    Var x{"x"}, y{"y"}, z{"c"}, t{"t"}, n{"n"};
+    Var x{"x"}, y{"y"}, z{"c"}, t{"t"};
+    RVar xo{"xo"}, yo{"yo"}, zo{"zo"}, xi{"xi"}, yi{"yi"}, zi{"zi"};
 };
 
 HALIDE_REGISTER_GENERATOR(FMMGenerator, fmm_gen)
