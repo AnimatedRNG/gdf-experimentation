@@ -182,7 +182,7 @@ int main() {
 
     float target_transform_[4][4] = {0.0f};
     identity(target_transform_);
-    apply_translation(target_transform_, 1.0f, 0.0f, 0.0f);
+    //apply_translation(target_transform_, 1.0f, 0.0f, 0.0f);
     //apply_rotation(target_transform_, 0.0f, 0.5f, 0.0f);
     //apply_translation(target_transform_, 0.0f, 2.0f, -3.0f);
 
