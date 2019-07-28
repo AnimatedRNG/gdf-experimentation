@@ -201,6 +201,7 @@ class FMMGenerator : public Halide::Generator<FMMGenerator> {
                   );
 
         sdf_output_(x, y, z) = sdf_iterative(x, y, z, all_iters);
+        //sdf_output_(x, y, z) = 0.0f;
 
         /*clamped.compute_inline();
         level_set_min.compute_at(level_set, xi);

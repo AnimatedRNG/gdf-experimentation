@@ -72,7 +72,7 @@ halide_generator(tracer_render.generator
 )
 halide_library_from_generator(tracer_render
                               GENERATOR tracer_render.generator
-                              GENERATOR_DEPS sobel.generator projection.generator
+                              GENERATOR_DEPS sobel.generator projection.generator fmm_gen.generator
                               #GENERATOR_ARGS auto_schedule=true
                               EXTRA_OUTPUTS schedule stmt
                               HALIDE_TARGET_FEATURES cuda profile
@@ -122,5 +122,6 @@ target_link_libraries(fmm_test PUBLIC
 target_link_libraries(tracer PUBLIC
                              ${CMAKE_THREAD_LIBS_INIT}
                              sdf_gen
+                             fmm_gen
                              optimizer_gen
                              tracer_render)

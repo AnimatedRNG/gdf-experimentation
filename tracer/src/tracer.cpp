@@ -11,6 +11,7 @@
 
 #include "tracer_render.h"
 #include "sdf_gen.h"
+#include "fmm_gen.h"
 #include "optimizer.hpp"
 #include "optimizer_gen.h"
 #include "read_sdf.hpp"
@@ -162,8 +163,8 @@ int main() {
 
     float target_transform_[4][4] = {0.0f};
     identity(target_transform_);
-    //apply_translation(target_transform_, 1.0f, 2.0f, 2.0f);
-    apply_rotation(target_transform_, 0.0f, 0.5f, 0.0f);
+    apply_translation(target_transform_, 1.0f, 0.0f, 0.0f);
+    //apply_rotation(target_transform_, 0.0f, 0.5f, 0.0f);
     //apply_translation(target_transform_, 0.0f, 2.0f, -3.0f);
 
     /*const float model_translation_[3] = {
@@ -197,6 +198,7 @@ int main() {
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);
     Buffer<float> sdf_model(n_matrix[0], n_matrix[1], n_matrix[2]);
+    Buffer<float> sdf_model_2(n_matrix[0], n_matrix[1], n_matrix[2]);
     Buffer<float> sdf_target(n_matrix[0], n_matrix[1], n_matrix[2]);
     Buffer<float> p0(3);
     Buffer<float> p1(3);
@@ -224,6 +226,7 @@ int main() {
     to_device(target_transform, interface);
 
     to_device(sdf_model, interface);
+    to_device(sdf_model_2, interface);
 
     to_device(sdf_target, interface);
 
@@ -290,6 +293,21 @@ int main() {
         //to_device(model_transform_copy, interface);
         to_device(forward_, interface);
 
+        std::cout << "reinitializing distance field using FMM..." << std::endl;
+
+        start = std::chrono::steady_clock::now();
+        fmm_gen(sdf_model,
+                p0, p1,
+                n_matrix[0], n_matrix[1], n_matrix[2],
+                sdf_model_2);
+        // I would use std::swap, but that would mess with the optimizer :/
+        interface->buffer_copy(nullptr, sdf_model_2, interface, sdf_model);
+        end = std::chrono::steady_clock::now();
+        diff = end - start;
+        std::cout << "completed FMM in "
+                  << std::chrono::duration <float, std::milli> (diff).count()
+                  << " ms" << std::endl;
+
         start = std::chrono::steady_clock::now();
         tracer_render(projection, view, model_transform,
                       sdf_model, p0, p1,
@@ -305,9 +323,6 @@ int main() {
         diff = end - start;
 
         //to_host(model_transform);
-        std::cout << "after render: before optimization " <<
-            (float*) ((halide_buffer_t*) model_transform)->host << " " << std::endl;
-        print_matrix(model_transform);
         //model_transform.set_host_dirty();
         //model_transform.copy_to_device(halide_cuda_device_interface());
 
@@ -320,7 +335,7 @@ int main() {
         to_host(forward_);
         to_host(target_);
 
-        to_host(d_l_sdf_);
+        /*to_host(d_l_sdf_);
         float prod = 0.0f;
         for (int i = 0; i < n_matrix[0]; i++) {
             for (int j = 0; j < n_matrix[1]; j++) {
@@ -330,7 +345,7 @@ int main() {
             }
         }
         std::cout << "prod " << prod << std::endl;
-        to_device(d_l_sdf_, interface);
+        to_device(d_l_sdf_, interface);*/
 
         //to_host(loss_);
 
