@@ -13,7 +13,7 @@ inline void _record(Func f,
     Var x("x"), y("y"), c("c"), t("t");
 
     Func _realize("_realize_" + f.name());
-    _realize(t, x, y, c) = cast<uint8_t>(0);
+    _realize(t, x, y, c) = 0.0f;
 
     Func f_p("f_p");
     f_p(x, y, t, c) = 0.0f;
@@ -51,12 +51,9 @@ inline void _record(Func f,
         }
     }
 
-    _realize(t, x, y, 2) = cast<uint8_t>(clamp(f_p(x, y, t, 0), 0.0f,
-                                         1.0f) * 255.0f);
-    _realize(t, x, y, 1) = cast<uint8_t>(clamp(f_p(x, y, t, 1), 0.0f,
-                                         1.0f) * 255.0f);
-    _realize(t, x, y, 0) = cast<uint8_t>(clamp(f_p(x, y, t, 2), 0.0f,
-                                         1.0f) * 255.0f);
+    _realize(t, x, y, 2) = clamp(f_p(x, y, t, 0), 0.0f, 1.0f);
+    _realize(t, x, y, 1) = clamp(f_p(x, y, t, 1), 0.0f, 1.0f);
+    _realize(t, x, y, 0) = clamp(f_p(x, y, t, 2), 0.0f, 1.0f);
 
     debug_(initial_debug + current_debug++, t, x, y, c) = _realize(t, x, y, c);
 }

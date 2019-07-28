@@ -215,7 +215,7 @@ int main() {
     Buffer<float> target_transform(target_transform_);
 
     //ADAM adam(model_translation, d_l_translation_);
-    ADAM adam(model_transform, d_l_transform_, 1e-2f);
+    //ADAM adam(model_transform, d_l_transform_, 1e-2f);
 
     to_device(projection, interface);
 
@@ -228,6 +228,8 @@ int main() {
     to_device(sdf_target, interface);
 
     //to_device(loss_, interface);
+
+    ADAM adam(sdf_model, d_l_sdf_, 1e1f);
 
     to_device(p0, interface);
     to_device(p1, interface);
@@ -277,19 +279,19 @@ int main() {
     for (int epoch = 0; epoch < 900; epoch++) {
         std::cout << "epoch " << epoch << std::endl;
 
-        std::cout << "before render " <<
+        /*std::cout << "before render " <<
             (float*) ((halide_buffer_t*) model_transform)->host << " " << std::endl;
             print_matrix(model_transform);
 
         Buffer<float> model_transform_copy(4, 4);
-        copy(model_transform, model_transform_copy);
+        copy(model_transform, model_transform_copy);*/
 
-        //to_device(model_transform, interface);
-        to_device(model_transform_copy, interface);
+        to_device(model_transform, interface);
+        //to_device(model_transform_copy, interface);
         to_device(forward_, interface);
 
         start = std::chrono::steady_clock::now();
-        tracer_render(projection, view, model_transform_copy,
+        tracer_render(projection, view, model_transform,
                       sdf_model, p0, p1,
                       target_,
                       width, height, 0,
@@ -311,13 +313,24 @@ int main() {
 
         std::cout << "done with rendering; copying back now" << std::endl;
 
-        to_host(d_l_transform_);
+        //to_host(d_l_transform_);
 
         adam.step();
 
         to_host(forward_);
         to_host(target_);
-        //d_l_sdf_.copy_to_host();
+
+        to_host(d_l_sdf_);
+        float prod = 0.0f;
+        for (int i = 0; i < n_matrix[0]; i++) {
+            for (int j = 0; j < n_matrix[1]; j++) {
+                for (int k = 0; k < n_matrix[2]; k++) {
+                    prod += d_l_sdf_(i, j, k);
+                }
+            }
+        }
+        std::cout << "prod " << prod << std::endl;
+        to_device(d_l_sdf_, interface);
 
         //to_host(loss_);
 
@@ -328,10 +341,10 @@ int main() {
         /*std::cout << "d_l_translation " << d_l_translation_(0) << " "
                   << d_l_translation_(1) << " "
                   << d_l_translation_(2) << std::endl;*/
-        std::cout << "d_l_transform: " << std::endl;
-        print_matrix(d_l_transform_);
+        //std::cout << "d_l_transform: " << std::endl;
+        //print_matrix(d_l_transform_);
 
-        to_device(d_l_transform_, interface);
+        //to_device(d_l_transform_, interface);
 
         /*std::cout << "model_translation " << model_translation(0) << " "
                   << model_translation(1) << " "

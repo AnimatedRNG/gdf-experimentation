@@ -11,24 +11,36 @@
 using namespace Halide::Runtime;
 using namespace Halide::Tools;
 
+void test_print(void* ctx, const char* data) {
+    char* casted = (char*) data;
+    std::cout << casted;
+}
+
 class ADAM {
   public:
 
     explicit ADAM(Buffer<float>& params,
-         Buffer<float>& gradient,
-         const float& lr = 1e-3f,
-         const float& beta_1 = 0.9f,
-         const float& beta_2 = 0.99f,
-         const float& weight_decay = 0.0f,
-         const float& eps = 1e-8f) :
+                  Buffer<float>& gradient,
+                  const float& lr = 1e-3f,
+                  const float& beta_1 = 0.9f,
+                  const float& beta_2 = 0.99f,
+                  const float& weight_decay = 0.0f,
+                  const float& eps = 1e-8f) :
+        interface(halide_cuda_device_interface()),
         params_(params), gradient_(gradient),
         lr_(lr), beta_1_(beta_1), beta_2_(beta_2),
         weight_decay_(weight_decay), eps_(eps), iterations(0),
         num_elems(params.number_of_elements()), sizes(),
-        exp_avg_(params.number_of_elements()), exp_avg_sq_(params.number_of_elements()) {
-
+        exp_avg_(params.number_of_elements()),
+        exp_avg_sq_(params.number_of_elements()) {
         exp_avg_.fill(0);
         exp_avg_sq_.fill(0);
+
+        exp_avg_.set_host_dirty();
+        exp_avg_.copy_to_device(interface);
+
+        exp_avg_.set_host_dirty();
+        exp_avg_sq_.copy_to_device(interface);
 
         sizes.clear();
         for (int i = 0; i < params.dimensions(); i++) {
@@ -37,49 +49,44 @@ class ADAM {
     }
 
     inline void step() {
-        //params_.flatten();
-        //gradient_.flatten();
-        Buffer<float> params_flattened(params_.data(),
-                                       {params_.number_of_elements()});
-        Buffer<float> gradient_flattened(gradient_.data(),
-                                         {gradient_.number_of_elements()});
-        /*params_flattened.set_host_dirty();
-        params_flattened.copy_to_device(halide_cuda_device_interface());
-        gradient_flattened.set_host_dirty();
-        gradient_flattened.copy_to_device(halide_cuda_device_interface());*/
+        params_.flatten();
+        gradient_.flatten();
 
         Buffer<float> exp_avg_out(num_elems);
         Buffer<float> exp_avg_sq_out(num_elems);
 
-        Buffer<float> output_params_flattened(num_elems);
-        //output_params_flattened.set_host_dirty();
-        //output_params_flattened.copy_to_device(halide_cuda_device_interface());
+        exp_avg_out.set_host_dirty(true);
+        exp_avg_sq_out.set_host_dirty(true);
 
-        optimizer_gen(params_flattened, gradient_flattened,
+        exp_avg_out.device_malloc(interface);
+        exp_avg_sq_out.device_malloc(interface);
+
+        Buffer<float> output_params_flattened(num_elems);
+        output_params_flattened.set_host_dirty(true);
+        output_params_flattened.device_malloc(interface);
+
+        optimizer_gen(params_, gradient_,
                       lr_, beta_1_, beta_2_, weight_decay_, eps_,
-                      (float) (++iterations),
+                      (float)(++iterations),
                       exp_avg_, exp_avg_sq_,
                       exp_avg_out, exp_avg_sq_out,
                       output_params_flattened
-                      );
-        //output_params_flattened.reshape(sizes);
-        //params_.reshape(sizes);
-        //gradient_.reshape(sizes);
+                     );
 
-        // TODO: remove copies at some point!
-        //output_params_flattened.copy_to_host();
+        output_params_flattened.reshape(sizes);
+        params_.reshape(sizes);
+        gradient_.reshape(sizes);
 
-        Buffer<float> output_params(output_params_flattened.data(), sizes);
-        //params_ = std::move(output_params);
-        params_.copy_from(output_params);
+        output_params_flattened.reshape(sizes);
+        params_ = std::move(output_params_flattened);
 
-        //exp_avg_ = Buffer<float>(exp_avg_out.data(), num_elems);
-        //exp_avg_sq_ = Buffer<float>(exp_avg_sq_out.data(), num_elems);
-        exp_avg_.copy_from(exp_avg_out);
-        exp_avg_sq_.copy_from(exp_avg_sq_out);
+        interface->buffer_copy(nullptr, exp_avg_, interface, exp_avg_out);
+        interface->buffer_copy(nullptr, exp_avg_sq_, interface, exp_avg_sq_out);
     }
 
   private:
+    const halide_device_interface_t* interface;
+
     Buffer<float>& params_;
     Buffer<float>& gradient_;
 

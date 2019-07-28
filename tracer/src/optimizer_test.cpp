@@ -10,6 +10,7 @@
 #include "sdf_gen.h"
 #include "optimizer_gen.h"
 #include "optimizer.hpp"
+#include "buffer_utils.hpp"
 
 using namespace Halide::Runtime;
 using namespace Halide::Tools;
@@ -30,11 +31,12 @@ int main() {
     };
     Buffer<float> initial_grad(initial_grad_m);
 
-    //initial_params.set_host_dirty();
-    //initial_params.copy_to_device(halide_cuda_device_interface());
+    initial_params.set_host_dirty(true);
+    initial_params.set_device_dirty(false);
+    initial_params.copy_to_device(halide_cuda_device_interface());
 
-    //initial_grad.set_host_dirty();
-    //initial_grad.copy_to_device(halide_cuda_device_interface());
+    initial_grad.set_host_dirty();
+    initial_grad.copy_to_device(halide_cuda_device_interface());
 
     ADAM adam(initial_params, initial_grad);
 
@@ -52,7 +54,7 @@ int main() {
             << " ms"
             << std::endl;
 
-    //initial_params.copy_to_host();
+    initial_params.copy_to_host();
 
     std::cout << "final parameters are " << std::endl;
     for (int j = 0; j < 2; j++) {

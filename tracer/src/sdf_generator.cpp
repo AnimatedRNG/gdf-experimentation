@@ -33,7 +33,7 @@ namespace {
         void generate() {
             GridSDF grid_sdf = to_grid_sdf(example_box,
             {-4.0f, -4.0f, -4.0f},
-            {4.0f, 4.0f, 4.0f}, 128, 128, 128);
+            {4.0f, 4.0f, 4.0f}, 64, 64, 64);
 
             sdf_(x, y, z) = grid_sdf.buffer(x, y, z);
 
@@ -47,12 +47,32 @@ namespace {
             p1(1) = grid_sdf.p1.get()[1];
             p1(2) = grid_sdf.p1.get()[2];
 
-            if (auto_schedule) {
+            if (/*auto_schedule*/ true) {
                 sdf_.estimate(x, 0, 128)
                 .estimate(y, 0, 128)
                 .estimate(z, 0, 128);
                 p0.estimate(x, 0, 3);
                 p1.estimate(x, 0, 3);
+
+                std::vector<Func> output_func({sdf_, p0, p1});
+
+                Halide::SimpleAutoscheduleOptions options;
+                options.gpu = get_target().has_gpu_feature();
+                options.gpu_tile_channel = 1;
+                options.unroll_rvar_size = 128;
+
+                Halide::simple_autoschedule(
+                output_func, {
+                }, {
+                    {
+                        {0, 128},
+                        {0, 128},
+                        {0, 128}
+                    },
+                    {{0, 4}},
+                    {{0, 4}}
+                },
+                options);
             } else {
                 // TODO
             }
