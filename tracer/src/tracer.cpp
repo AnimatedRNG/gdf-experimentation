@@ -163,8 +163,8 @@ int main() {
     float target_transform_[4][4] = {0.0f};
     identity(target_transform_);
     //apply_translation(target_transform_, 1.0f, 2.0f, 2.0f);
-    //apply_rotation(target_transform_, 0.0f, -1.0f, 0.0f);
-    apply_translation(target_transform_, 0.0f, 2.0f, -3.0f);
+    apply_rotation(target_transform_, 0.0f, 0.5f, 0.0f);
+    //apply_translation(target_transform_, 0.0f, 2.0f, -3.0f);
 
     /*const float model_translation_[3] = {
         0.0f, 0.0f, 0.0f
@@ -176,7 +176,7 @@ int main() {
     identity(model_transform_);
 
     const int32_t n_matrix[3] = {
-        128, 128, 128
+        64, 64, 64
     };
 
     int width = 100;
@@ -273,7 +273,7 @@ int main() {
             << " ms"
             << std::endl << std::endl;
 
-    to_device(sdf_model, interface);
+    //to_device(sdf_model, interface);
     for (int epoch = 0; epoch < 900; epoch++) {
         std::cout << "epoch " << epoch << std::endl;
 
