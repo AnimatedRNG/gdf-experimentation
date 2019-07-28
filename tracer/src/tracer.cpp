@@ -58,6 +58,25 @@ void write_gifs(
     free(buffer);
 }
 
+void debug_sdf(const std::string& directory,
+               Buffer<float>& sdf,
+               const halide_device_interface_t* interface) {
+    to_host(sdf);
+    std::vector<int> sizes = {sdf.dim(0).extent(), sdf.dim(1).extent()};
+
+    for (int z = 0; z < sdf.dim(2).extent(); z++) {
+        Buffer<float> buf(sizes);
+        buf.copy_from(sdf.sliced(2, z));
+        buf.for_each_value([] (float& v) {
+            v = (v + 4.0f) / 8.0f;
+        });
+        convert_and_save_image(buf,
+            directory + "/" + std::to_string(z) + ".png");
+    }
+
+    to_device(sdf, interface);
+}
+
 void mat_mul(float m1[4][4], float m2[4][4], float out[4][4]) {
     float tmp[4][4];
     for (int i = 0; i < 4; i++) {
@@ -232,14 +251,14 @@ int main() {
 
     //to_device(loss_, interface);
 
-    ADAM adam(sdf_model, d_l_sdf_, 1e1f);
+    ADAM adam(sdf_model, d_l_sdf_, 1e-3f);
 
     to_device(p0, interface);
     to_device(p1, interface);
 
     auto start = std::chrono::steady_clock::now();
-    sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], sdf_model, p0, p1);
-    sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], sdf_target, p0, p1);
+    sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], 0, sdf_model, p0, p1);
+    sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], 1, sdf_target, p0, p1);
 
     auto end = std::chrono::steady_clock::now();
 
@@ -294,7 +313,6 @@ int main() {
         to_device(forward_, interface);
 
         std::cout << "reinitializing distance field using FMM..." << std::endl;
-
         start = std::chrono::steady_clock::now();
         fmm_gen(sdf_model,
                 p0, p1,
@@ -307,6 +325,7 @@ int main() {
         std::cout << "completed FMM in "
                   << std::chrono::duration <float, std::milli> (diff).count()
                   << " ms" << std::endl;
+        //debug_sdf("sdf_uncorrected", sdf_model, interface);
 
         start = std::chrono::steady_clock::now();
         tracer_render(projection, view, model_transform,
@@ -322,6 +341,8 @@ int main() {
         end = std::chrono::steady_clock::now();
         diff = end - start;
 
+        debug_sdf("d_l_sdf", d_l_sdf_, interface);
+
         //to_host(model_transform);
         //model_transform.set_host_dirty();
         //model_transform.copy_to_device(halide_cuda_device_interface());
@@ -335,7 +356,7 @@ int main() {
         to_host(forward_);
         to_host(target_);
 
-        /*to_host(d_l_sdf_);
+        to_host(d_l_sdf_);
         float prod = 0.0f;
         for (int i = 0; i < n_matrix[0]; i++) {
             for (int j = 0; j < n_matrix[1]; j++) {
@@ -344,8 +365,8 @@ int main() {
                 }
             }
         }
-        std::cout << "prod " << prod << std::endl;
-        to_device(d_l_sdf_, interface);*/
+        std::cout << "loss mag " << prod << std::endl;
+        to_device(d_l_sdf_, interface);
 
         //to_host(loss_);
 

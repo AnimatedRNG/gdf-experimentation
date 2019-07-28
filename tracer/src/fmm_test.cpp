@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
     to_device(sdf_output, interface);
 
     auto start = std::chrono::steady_clock::now();
-    sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], sdf, p0, p1);
+    sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], 0, sdf, p0, p1);
 
     auto end = std::chrono::steady_clock::now();
 

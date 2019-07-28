@@ -26,6 +26,8 @@ namespace {
         Input<int32_t> res_y{"res_y"};
         Input<int32_t> res_z{"res_z"};
 
+        Input<int32_t> type{"type"};
+
         Output<Func> sdf_{"sdf_", Float(32), 3};
         Output<Func> p0{"p0", Float(32), 1};
         Output<Func> p1{"p1", Float(32), 1};
@@ -35,7 +37,13 @@ namespace {
             {-4.0f, -4.0f, -4.0f},
             {4.0f, 4.0f, 4.0f}, 64, 64, 64);
 
-            sdf_(x, y, z) = grid_sdf.buffer(x, y, z);
+            GridSDF grid_sdf_2 = to_grid_sdf(example_sphere,
+            {-4.0f, -4.0f, -4.0f},
+            {4.0f, 4.0f, 4.0f}, 64, 64, 64);
+
+            sdf_(x, y, z) = select(type == Expr(0),
+                                   grid_sdf.buffer(x, y, z),
+                                   grid_sdf_2.buffer(x, y, z));
 
             p0(x) = 0.0f;
             p0(0) = grid_sdf.p0.get()[0];
