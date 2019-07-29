@@ -28,7 +28,8 @@ __host__ cuda_array<T, N>* create(size_t dims[N]) {
 }
 
 template <typename T, size_t N>
-__host__ __device__ void assign(cuda_array<T, N>* arr, T* ptr, size_t dims[N]) {
+__host__ __device__ void assign(cuda_array<T, N>* arr, T* ptr, size_t dims[N],
+                                const bool& delete_mem = false) {
     size_t product = 1;
     for (int i = 0; i < N; i++) {
         arr->shape[i] = dims[i];
@@ -37,6 +38,11 @@ __host__ __device__ void assign(cuda_array<T, N>* arr, T* ptr, size_t dims[N]) {
         product *= dims[i];
     }
     arr->num_elements = product;
+
+    if (delete_mem) {
+        delete[] arr->data;
+    }
+    
     arr->data = ptr;
 }
 
@@ -140,33 +146,175 @@ __host__ void to_host(T* arr, cuda_array<T, N>* host) {
 }
 
 __global__
-void render(float* projection_matrix_, size_t shape[2]) {
+void render(float* projection_matrix_,
+            float* view_matrix_,
+            float* transform_matrix_,
+            float* sdf_, size_t sdf_shape[3],
+            float* p0_,
+            float* p1_,
+            float* target_,
+            size_t width,
+            size_t height,
+            
+            float* loss_,
+            float* forward_,
+            float* dLossdSDF_,
+            float* dLossdTransform_) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+    
+    size_t mat4_size[2] = {4, 4};
+    size_t vec3_size[1] = {3};
+    size_t image_size[2] = {width, height};
     
     cuda_array<float, 2> projection_matrix;
-    assign<float, 2>(&projection_matrix, projection_matrix_, shape);
-    
+    assign<float, 2>(&projection_matrix,
+                     projection_matrix_,
+                     mat4_size);
+                     
+    cuda_array<float, 2> view_matrix;
+    assign<float, 2>(&view_matrix,
+                     view_matrix_,
+                     mat4_size);
+                     
+    cuda_array<float, 2> transform_matrix;
+    assign<float, 2>(&transform_matrix,
+                     transform_matrix_,
+                     mat4_size);
+                     
+    cuda_array<float, 1> p0;
+    assign<float, 1>(&p0,
+                     p0_,
+                     vec3_size);
+                     
+    cuda_array<float, 1> p1;
+    assign<float, 1>(&p1,
+                     p1_,
+                     vec3_size);
+                     
+    cuda_array<float, 2> target;
+    assign<float, 2>(&target,
+                     target_,
+                     image_size);
+                     
     if (i < 16) {
-        index(&projection_matrix, i % 4, i / 4) = 10.0f;
+        index(&projection_matrix, i % 4, i / 4) += 10.0f;
     }
 }
 
 void trace() {
-    size_t dims[2] = {4, 4};
-    cuda_array<float, 2>* host_matrix = create<float, 2>(dims);
-    fill(host_matrix, 2.0f);
-    //gen_sdf(example_sphere, host_matrix);
+    size_t n_matrix[3] = {
+        64, 64, 64
+    };
     
-    size_t* shape;
-    float* device_matrix = to_device<float, 2>(host_matrix, &shape);
+    const float projection_matrix[4][4] = {
+        {0.75, 0.0, 0.0,  0.0},
+        {0.0,  1.0, 0.0,  0.0},
+        {0.0,  0.0, 1.0002,  1.0},
+        {0.0,  0.0, -0.2,  0.0}
+    };
     
-    render <<< 64, 64>>> (device_matrix, shape);
+    const float view_matrix[4][4] = {
+        {-0.9825, 0.1422, 0.1206, 0.0},
+        {0.0, 0.6469, -0.7626, 0.0},
+        {0.1865, 0.7492, 0.6356, 0.0},
+        {-0.3166, 1.1503, 8.8977, 1.0}
+    };
     
-    to_host<float, 2>(device_matrix, host_matrix);
+    const float transform_matrix[4][4] = {
+        {1.0f, 0.0f, 0.0f, 0.0f},
+        {0.0, 1.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 1.0f, 0.0},
+        {0.0f, 0.0f, 0.0f, 1.0}
+    };
     
-    print<float>(host_matrix);
+    const float p0_matrix[3] = {
+        -4.0f, -4.0f, -4.0f
+        };
+        
+    const float p1_matrix[3] = {
+        4.0f, 4.0f, 4.0f
+    };
     
-    delete_array(host_matrix);
+    const int width = 100;
+    const int height = 100;
+    
+    size_t mat4_dims[2] = {4, 4};
+    size_t vec3_dims[1] = {3};
+    size_t img_dims[3] = {width, height, 3};
+    size_t single_dim[1] = {1};
+    
+    size_t* mat4_dims_device;
+    size_t* vec3_dims_device;
+    size_t* n_matrix_device;
+    size_t* img_dims_device;
+    size_t* single_dim_device;
+    
+    cuda_array<float, 2>* projection_host = create<float, 2>(mat4_dims);
+    assign(projection_host, (float*) projection_matrix, mat4_dims, true);
+    float* projection_device = to_device<float, 2>(projection_host,
+                               &mat4_dims_device);
+                               
+    cuda_array<float, 2>* view_host = create<float, 2>(mat4_dims);
+    assign(view_host, (float*) view_matrix, mat4_dims, true);
+    float* view_device = to_device<float, 2>(view_host, &mat4_dims_device);
+    
+    cuda_array<float, 2>* transform_host = create<float, 2>(mat4_dims);
+    assign(transform_host, (float*) transform_matrix, mat4_dims, true);
+    float* transform_device = to_device<float, 2>(transform_host,
+                              &mat4_dims_device);
+                              
+    cuda_array<float, 3>* sdf_host = create<float, 3>(n_matrix);
+    gen_sdf<float>(example_sphere, sdf_host);
+    float* sdf_device = to_device<float, 3>(sdf_host, &n_matrix_device);
+    
+    cuda_array<float, 1>* p0_host = create<float, 1>(vec3_dims);
+    assign(p0_host, (float*) p0_matrix, vec3_dims, true);
+    float* p0_device = to_device<float, 1>(p0_host, &vec3_dims_device);
+    
+    cuda_array<float, 1>* p1_host = create<float, 1>(vec3_dims);
+    assign(p1_host, (float*) p1_matrix, vec3_dims, true);
+    float* p1_device = to_device<float, 1>(p1_host, &vec3_dims_device);
+    
+    cuda_array<float, 3>* target_host = create<float, 3>(img_dims);
+    float* target_device = to_device<float, 3>(target_host, &img_dims_device);
+    
+    cuda_array<float, 1>* loss_host = create<float, 1>(single_dim);
+    float* loss_device = to_device<float, 1>(loss_host, &single_dim_device);
+    
+    cuda_array<float, 3>* forward_host = create<float, 3>(img_dims);
+    float* forward_device = to_device<float, 3>(forward_host, &img_dims_device);
+    
+    cuda_array<float, 3>* dloss_dsdf_host = create<float, 3>(n_matrix);
+    float* dloss_dsdf_device = to_device<float, 3>(dloss_dsdf_host,
+                               &n_matrix_device);
+                               
+    cuda_array<float, 2>* dloss_dtransform_host = create<float, 2>(mat4_dims);
+    float* dloss_dtransform_device = to_device<float, 2>(dloss_dtransform_host,
+                                     &mat4_dims_device);
+                                     
+    render <<< 64, 64>>> (projection_device,
+                          view_device,
+                          transform_device,
+                          
+                          sdf_device, n_matrix_device,
+                          p0_device, p1_device,
+                          
+                          target_device,
+                          
+                          width, height,
+                          
+                          // outputs
+                          loss_device,
+                          forward_device,
+                          dloss_dsdf_device,
+                          dloss_dtransform_device
+                         );
+                         
+    to_host<float, 2>(projection_device, projection_host);
+    
+    print<float>(projection_host);
 }
 
 int main() {
