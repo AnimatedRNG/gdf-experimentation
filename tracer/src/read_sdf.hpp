@@ -99,12 +99,16 @@ inline Buffer<float> read_sdf(const std::string& filename,
             for (int i = 0; i < nx; i++) {
                 std::getline(infile, line);
                 std::istringstream line_val(line);
+                n++;
                 if (!(line_val >> sdf_val)) {
-                    error("malformed line " + std::to_string(n++ + 3 + 1));
+                    error("malformed line " + std::to_string(n + 3 + 1));
                 }
                 sdf_buffer(i, j, k) = sdf_val * scale_factor;
+                //printf("%.2f\t", sdf_buffer(i, j, k));
             }
+            //std::cout << std::endl;
         }
+        //std::cout << std::endl;
     }
 
     return sdf_buffer;

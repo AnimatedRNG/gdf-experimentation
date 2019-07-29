@@ -34,6 +34,26 @@ TupleVec<N> trilinear(const GridSDF& sdf, TupleVec<3> position) {
     TupleVec<3> grid_space = ((position - sdf.p0) / (sdf.p1 - sdf.p0)) *
                              (cast<float>(sdf.n));
 
+    Func clamped;
+    /*if (N == 1) {
+        clamped = BoundaryConditions::constant_exterior(sdf.buffer,
+                                                        Expr(1e10f),
+                                                        {{0, sdf.n[0]},
+                                                         {0, sdf.n[1]},
+                                                         {0, sdf.n[2]}});
+    } else {
+        clamped = BoundaryConditions::constant_exterior(sdf.buffer,
+                                                        Tuple(1e10f, 1e10f, 1e10f),
+                                                        {{0, sdf.n[0]},
+                                                         {0, sdf.n[1]},
+                                                         {0, sdf.n[2]}});
+                                                         }*/
+    clamped = BoundaryConditions::repeat_image(sdf.buffer, {
+        {0, sdf.n[0]},
+        {0, sdf.n[1]},
+        {0, sdf.n[2]}
+    });
+
     // floor and ceil slow?
     TupleVec<3> lp = build<3>([grid_space, sdf](unsigned int i) {
         return clamp(cast<int32_t>(grid_space[i]), 0, sdf.n[i] - 1);
@@ -43,29 +63,28 @@ TupleVec<N> trilinear(const GridSDF& sdf, TupleVec<3> position) {
         return clamp(cast<int32_t>(Halide::ceil(grid_space[i])), 0, sdf.n[i] - 1);
     });
 
-    // why won't this work?
-    /*Tuple up = {
-        clamp(lp[0] + 1, 0, sdf.nx - 1),
-        clamp(lp[1] + 1, 0, sdf.ny - 1),
-        clamp(lp[2] + 1, 0, sdf.nz - 1)
-        };*/
-
-    /*TupleVec<3> alpha = {
-        grid_space[0] - lp[0],
-        grid_space[1] - lp[1],
-        grid_space[2] - lp[2],
-        };*/
+    // These won't work
+    /*TupleVec<3> lp = {
+                      cast<int32_t>(grid_space[0]),
+                      cast<int32_t>(grid_space[1]),
+                      cast<int32_t>(grid_space[2]),
+    };
+    TupleVec<3> up = {
+                      cast<int32_t>(Halide::ceil(grid_space[0])),
+                      cast<int32_t>(Halide::ceil(grid_space[1])),
+                      cast<int32_t>(Halide::ceil(grid_space[2])),
+                      };*/
     TupleVec<3> alpha = grid_space - lp;
 
     if (N == 1) {
-        Expr c000 = sdf.buffer(lp[0], lp[1], lp[2]);
-        Expr c001 = sdf.buffer(lp[0], lp[1], up[2]);
-        Expr c010 = sdf.buffer(lp[0], up[1], lp[2]);
-        Expr c011 = sdf.buffer(lp[0], up[1], up[2]);
-        Expr c100 = sdf.buffer(up[0], lp[1], lp[2]);
-        Expr c101 = sdf.buffer(up[0], lp[1], up[2]);
-        Expr c110 = sdf.buffer(up[0], up[1], lp[2]);
-        Expr c111 = sdf.buffer(up[0], up[1], up[2]);
+        Expr c000 = clamped(lp[0], lp[1], lp[2]);
+        Expr c001 = clamped(lp[0], lp[1], up[2]);
+        Expr c010 = clamped(lp[0], up[1], lp[2]);
+        Expr c011 = clamped(lp[0], up[1], up[2]);
+        Expr c100 = clamped(up[0], lp[1], lp[2]);
+        Expr c101 = clamped(up[0], lp[1], up[2]);
+        Expr c110 = clamped(up[0], up[1], lp[2]);
+        Expr c111 = clamped(up[0], up[1], up[2]);
 
         // interpolate on x
         Expr c00 = Halide::lerp(c000, c100, alpha[0]);
@@ -82,14 +101,14 @@ TupleVec<N> trilinear(const GridSDF& sdf, TupleVec<3> position) {
 
         return TupleVec<N>({c});
     } else {
-        Tuple c000 = sdf.buffer(lp[0], lp[1], lp[2]);
-        Tuple c001 = sdf.buffer(lp[0], lp[1], up[2]);
-        Tuple c010 = sdf.buffer(lp[0], up[1], lp[2]);
-        Tuple c011 = sdf.buffer(lp[0], up[1], up[2]);
-        Tuple c100 = sdf.buffer(up[0], lp[1], lp[2]);
-        Tuple c101 = sdf.buffer(up[0], lp[1], up[2]);
-        Tuple c110 = sdf.buffer(up[0], up[1], lp[2]);
-        Tuple c111 = sdf.buffer(up[0], up[1], up[2]);
+        Tuple c000 = clamped(lp[0], lp[1], lp[2]);
+        Tuple c001 = clamped(lp[0], lp[1], up[2]);
+        Tuple c010 = clamped(lp[0], up[1], lp[2]);
+        Tuple c011 = clamped(lp[0], up[1], up[2]);
+        Tuple c100 = clamped(up[0], lp[1], lp[2]);
+        Tuple c101 = clamped(up[0], lp[1], up[2]);
+        Tuple c110 = clamped(up[0], up[1], lp[2]);
+        Tuple c111 = clamped(up[0], up[1], up[2]);
 
         TupleVec<N> c00 = TupleVec<N>(c000) * (1.0f - alpha[0]) +
                           TupleVec<N>(c100) * alpha[0];
@@ -128,6 +147,7 @@ Expr example_box(TupleVec<3> position) {
 }
 
 Expr to_render_dist(Expr dist, Expr scale_factor = Expr(1.0f)) {
+    //return dist - 1e-5f;
     return scale_factor /                                             \
            (10.0f + (1.0f - Halide::clamp(Halide::abs(dist), 0.0f, 1.0f)) * 90.0f);
     //return scale_factor / 10.0f;
@@ -315,9 +335,9 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         return total_light;
 
-        //Func tt;
-        //tt(x, y, t) = {1.0f, 0.0f, 0.0f};
-        //return tt;
+        /*Func tt;
+        tt(x, y, t) = {1.0f, 0.0f, 0.0f};
+        return tt;*/
     }
 
     TupleVec<3> step_back(TupleVec<3> positions, TupleVec<3> ray_vec,
@@ -401,7 +421,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
                             TupleVec<3>(original_ray_pos(x, y))).get();
 
         //pos(x, y, t) = {0.0f, 0.0f, 0.0f};
-        //pos(x, y, 0) = repack<3>(transformed_ray_pos)(x, y);
+        //pos(x, y, 0) = transformed_ray_pos(x, y);
         pos(x, y, t) = transformed_ray_pos(x, y);
         d = trilinear<1>(sdf, TupleVec<3>(Tuple(pos(x, y, tr))))[0];
         //d = example_box(TupleVec<3>(pos(x, y, tr)));
@@ -629,14 +649,16 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
 
         //record(target, true);
         //record(fw_pass.at("forward"), true);
+        record(fw_pass.at("pos"));
+        record(fw_pass.at("intensity"));
         record(fw_pass.at("volumetric_shaded"));
 
-        record(bw_pass.at("dLoss_dPos"), false, "exists");
-        record(bw_pass.at("dLoss_dRayVec"), true, "exists");
-        record(bw_pass.at("dLoss_dIntensity"), false, "exists");
-        record(bw_pass.at("dLoss_dOpc"), false, "exists");
-        record(bw_pass.at("dLoss_dVolumetricShaded"), false, "exists");
-        record(bw_pass.at("debug_gradient"), false, "standard");
+        //record(bw_pass.at("dLoss_dPos"), false, "exists");
+        //record(bw_pass.at("dLoss_dRayVec"), true, "exists");
+        //record(bw_pass.at("dLoss_dIntensity"), false, "exists");
+        //record(bw_pass.at("dLoss_dOpc"), false, "exists");
+        //record(bw_pass.at("dLoss_dVolumetricShaded"), false, "exists");
+        //record(bw_pass.at("debug_gradient"), false, "standard");
 
         Func dLoss_dVolumetricShaded_fi("dLoss_dVolumetricShaded_fi");
         dLoss_dVolumetricShaded_fi(x, y) =

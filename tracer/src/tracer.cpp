@@ -72,6 +72,14 @@ void debug_sdf(const std::string& directory,
         });
         convert_and_save_image(buf,
             directory + "/" + std::to_string(z) + ".png");
+
+        for (int i = 0; i < sizes[0]; i++) {
+            for (int j = 0; j < sizes[1]; j++) {
+                printf("%.2f\t", (buf(i, j) * 8.0f) - 4.0f);
+            }
+            std::cout << std::endl;
+        }
+        std::cout << std::endl << std::endl;
     }
 
     to_device(sdf, interface);
@@ -182,7 +190,7 @@ int main() {
 
     float target_transform_[4][4] = {0.0f};
     identity(target_transform_);
-    //apply_translation(target_transform_, 1.0f, 0.0f, 0.0f);
+    //apply_translation(target_transform_, 0.0f, 0.0f, 10.0f);
     //apply_rotation(target_transform_, 0.0f, 0.5f, 0.0f);
     //apply_translation(target_transform_, 0.0f, 2.0f, -3.0f);
 
@@ -208,11 +216,11 @@ int main() {
     float p1_1_matrix[3];
     int32_t n_1_matrix[3];
 
-    Buffer<float> lucy = read_sdf("bunny.sdf",
-                                  p0_1_matrix[0], p0_1_matrix[1], p0_1_matrix[2],
-                                  p1_1_matrix[0], p1_1_matrix[1], p1_1_matrix[2],
-                                  n_1_matrix[0], n_1_matrix[1], n_1_matrix[2],
-                                  true, true, 4.0f);
+    Buffer<float> bunny = read_sdf("bunny.sdf",
+                                   p0_1_matrix[0], p0_1_matrix[1], p0_1_matrix[2],
+                                   p1_1_matrix[0], p1_1_matrix[1], p1_1_matrix[2],
+                                   n_1_matrix[0], n_1_matrix[1], n_1_matrix[2],
+                                   true, true, 8.0f);
 
     Buffer<float> projection(projection_matrix);
     Buffer<float> view(view_matrix);
@@ -221,9 +229,10 @@ int main() {
     Buffer<float> sdf_target(n_matrix[0], n_matrix[1], n_matrix[2]);
     Buffer<float> p0(3);
     Buffer<float> p1(3);
-    Buffer<float> p0_1(3);
-    Buffer<float> p1_1(3);
+    Buffer<float> p0_1(p0_1_matrix);
+    Buffer<float> p1_1(p1_1_matrix);
     Buffer<int32_t> n(n_matrix);
+    Buffer<int32_t> n_1(n_1_matrix);
     Buffer<float> target_(width, height, 3);
     Buffer<float> loss_(1);
     Buffer<float> forward_(width, height, 3);
@@ -251,7 +260,7 @@ int main() {
 
     //to_device(loss_, interface);
 
-    ADAM adam(sdf_model, d_l_sdf_, 1e-3f);
+    ADAM adam(sdf_model, d_l_sdf_, 1e1f);
 
     to_device(p0, interface);
     to_device(p1, interface);
@@ -273,10 +282,13 @@ int main() {
     Buffer<int32_t> num_debug(1);
 #endif //DEBUG_TRACER
 
+    to_device(p0_1, interface);
+    to_device(p1_1, interface);
     start = std::chrono::steady_clock::now();
 
     tracer_render(projection, view, target_transform,
                   sdf_target, p0, p1,
+                  //bunny, p0_1, p1_1,
                   forward_, // dummy placeholder
                   width, height, 0,
                   loss_,
@@ -296,6 +308,12 @@ int main() {
             << std::chrono::duration <float, std::milli> (diff).count()
             << " ms"
             << std::endl << std::endl;
+
+    /*debug.copy_to_host();
+    num_debug.copy_to_host();
+    write_gifs(debug, iterations, num_debug(0));
+    debug_sdf("bunny", bunny, interface);
+    return 0;*/
 
     //to_device(sdf_model, interface);
     for (int epoch = 0; epoch < 900; epoch++) {
@@ -342,6 +360,7 @@ int main() {
         diff = end - start;
 
         debug_sdf("d_l_sdf", d_l_sdf_, interface);
+        return 0;
 
         //to_host(model_transform);
         //model_transform.set_host_dirty();
@@ -361,7 +380,7 @@ int main() {
         for (int i = 0; i < n_matrix[0]; i++) {
             for (int j = 0; j < n_matrix[1]; j++) {
                 for (int k = 0; k < n_matrix[2]; k++) {
-                    prod += d_l_sdf_(i, j, k);
+                    prod += abs(d_l_sdf_(i, j, k));
                 }
             }
         }
