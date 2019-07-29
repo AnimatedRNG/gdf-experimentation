@@ -2,6 +2,8 @@
 #include <functional>
 #include "math.h"
 #include "helper_math.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
 
 #include "cuda_matmul.hpp"
 
@@ -63,7 +65,7 @@ __device__ float3 forward_pass(int x,
                                cuda_array<float, 3>* sdf,
                                cuda_array<float, 1>* p0,
                                cuda_array<float, 1>* p1,
-                               cuda_array<float, 3>* sdf_shape,
+                               size_t sdf_shape[3],
                                
                                
                                cuda_array<float, 2>* projection,
@@ -99,26 +101,34 @@ void render(float* projection_matrix_,
             float* dLossdTransform_) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
-    int k = blockIdx.z * blockDim.z + threadIdx.z;
+    
+    if (i >= width || j >= height) {
+        return;
+    }
     
     size_t mat4_size[2] = {4, 4};
     size_t vec3_size[1] = {3};
-    size_t image_size[2] = {width, height};
+    size_t image_size[3] = {3, width, height};
     
-    cuda_array<float, 2> projection_matrix;
-    assign<float, 2>(&projection_matrix,
+    cuda_array<float, 2> projection;
+    assign<float, 2>(&projection,
                      projection_matrix_,
                      mat4_size);
                      
-    cuda_array<float, 2> view_matrix;
-    assign<float, 2>(&view_matrix,
+    cuda_array<float, 2> view;
+    assign<float, 2>(&view,
                      view_matrix_,
                      mat4_size);
                      
-    cuda_array<float, 2> transform_matrix;
-    assign<float, 2>(&transform_matrix,
+    cuda_array<float, 2> transform;
+    assign<float, 2>(&transform,
                      transform_matrix_,
                      mat4_size);
+                     
+    cuda_array<float, 3> sdf;
+    assign<float, 3>(&sdf,
+                     sdf_,
+                     sdf_shape);
                      
     cuda_array<float, 1> p0;
     assign<float, 1>(&p0,
@@ -130,14 +140,27 @@ void render(float* projection_matrix_,
                      p1_,
                      vec3_size);
                      
-    cuda_array<float, 2> target;
-    assign<float, 2>(&target,
+    cuda_array<float, 3> target;
+    assign<float, 3>(&target,
                      target_,
                      image_size);
                      
-    if (i < 16) {
-        index(&projection_matrix, i % 4, i / 4) += (float)width;
-    }
+    cuda_array<float, 3> forward;
+    assign<float, 3>(&forward,
+                     forward_,
+                     image_size);
+                     
+    float3 c = forward_pass(i, j,
+                            &sdf, &p0, &p1, sdf_shape,
+                            &projection, &view, &transform,
+                            width, height);
+                            
+    index(&forward, 0, i, j) = (float) i / width;
+    index(&forward, 1, i, j) = (float) j / height;
+    index(&forward, 2, i, j) = 0.0f;
+    //index(&forward, 0, i, j) = c.x;
+    //index(&forward, 1, i, j) = c.y;
+    //index(&forward, 2, i, j) = c.z;
 }
 
 void trace() {
@@ -257,8 +280,10 @@ void trace() {
                                   );
                                   
     to_host<float, 2>(projection_device, projection_host);
+    to_host<float, 3>(forward_device, forward_host);
     
     print<float>(projection_host);
+    write_img("forward_cuda.bmp", forward_host);
 }
 
 int main() {

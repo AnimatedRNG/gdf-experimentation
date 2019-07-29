@@ -118,6 +118,24 @@ __host__ void print(cuda_array<T, 2>* arr) {
     }
 }
 
+__host__ void write_img(const char* filename, cuda_array<float, 3>* arr) {
+    unsigned char* arr_bytes = (unsigned char*) malloc(arr->num_elements * sizeof(
+                                   float));
+    int n = 0;
+
+    for (int k = 0; k < arr->shape[2]; k++) {
+        for (int j = 0; j < arr->shape[1]; j++) {
+            for (int i = 0; i < arr->shape[0]; i++) {
+                float p = index(arr, i, j, k);
+                //std::cout << p << std::endl;
+                arr_bytes[n++] = ((p < 0 ? 0 : (p > 1.0 ? 255 : p)) * 255.0);
+            }
+        }
+    }
+
+    stbi_write_bmp(filename, arr->shape[1], arr->shape[2], 3, arr_bytes);
+}
+
 template <typename T, size_t N>
 __host__ T* to_device(const cuda_array<T, N>* arr, size_t** shape) {
     T* device_ptr;
@@ -282,7 +300,8 @@ __host__ __device__ void mat4(cuda_array<T, 2>* m, T data[4][4]) {
 }
 
 template <typename T, size_t N>
-__host__ __device__ void matmul_sq(cuda_array<T, N>* a, cuda_array<T, N>* b, cuda_array<T, N>* c) {
+__host__ __device__ void matmul_sq(cuda_array<T, N>* a, cuda_array<T, N>* b,
+                                   cuda_array<T, N>* c) {
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
             for (int k = 0; k < N; k++) {
@@ -294,14 +313,16 @@ __host__ __device__ void matmul_sq(cuda_array<T, N>* a, cuda_array<T, N>* b, cud
 
 template <typename T>
 __host__ __device__ float3 matvec(cuda_array<T, 3>* a, const float3& b) {
-    return make_float3(index(a, 0, 0) * b.x + index(a, 0, 1) * b.y + index(a, 0, 2) * b.z,
+    return make_float3(index(a, 0, 0) * b.x + index(a, 0, 1) * b.y + index(a, 0,
+                       2) * b.z,
                        index(a, 1, 0) * b.x + index(a, 1, 1) * b.y + index(a, 1, 2) * b.z,
                        index(a, 2, 0) * b.x + index(a, 2, 1) * b.y + index(a, 2, 2) * b.z);
 }
 
 template <typename T>
 __host__ __device__ float3 matvec(cuda_array<T, 4>* a, const float3& b) {
-    return make_float3(index(a, 0, 0) * b.x + index(a, 0, 1) * b.y + index(a, 0, 2) * b.z,
+    return make_float3(index(a, 0, 0) * b.x + index(a, 0, 1) * b.y + index(a, 0,
+                       2) * b.z,
                        index(a, 1, 0) * b.x + index(a, 1, 1) * b.y + index(a, 1, 2) * b.z,
                        index(a, 2, 0) * b.x + index(a, 2, 1) * b.y + index(a, 2, 2) * b.z);
 }
