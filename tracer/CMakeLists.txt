@@ -4,7 +4,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/modules/")
 
 include("${HALIDE_DISTRIB_DIR}/halide.cmake")
 
-set(CMAKE_CXX_FLAGS_DEBUG "-O3 -g")
+set(CMAKE_CXX_FLAGS_DEBUG "-g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g")
 
 find_package(Threads REQUIRED)
@@ -78,26 +78,16 @@ halide_library_from_generator(tracer_render
                               HALIDE_TARGET_FEATURES cuda profile
 )
 
-# find_package(CUDA REQUIRED)
+find_package(CUDA REQUIRED)
 
-# set(
-#     CUDA_NVCC_FLAGS
-#     ${CUDA_NVCC_FLAGS} -G -g
-# )
+set(
+    CUDA_NVCC_FLAGS
+    ${CUDA_NVCC_FLAGS} -G -g
+)
 
-# add_executable(toy_test src/toy_test.cpp)
-# set_target_properties(toy_test PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
-# target_include_directories(toy_test PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}")
-# halide_use_image_io(toy_test)
-
-# cuda_add_library(test_cuda src/test_cuda.cu)
-# set_target_properties(test_cuda PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
-# target_include_directories(test_cuda PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}")
-
-# target_link_libraries(toy_test PUBLIC
-#                                ${CMAKE_THREAD_LIBS_INIT}
-#                                toy_gen
-#                                test_cuda)
+cuda_add_executable(tracer_cuda src/tracer.cu)
+set_target_properties(tracer_cuda PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+set_property(TARGET tracer_cuda PROPERTY CUDA_STANDARD 11)
 
 add_executable(optimizer_test src/optimizer_test.cpp)
 set_target_properties(optimizer_test PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
