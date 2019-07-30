@@ -231,6 +231,36 @@ __device__ void create_chk(chk& c) {
     c.volumetric_shaded[0] = make_float3(0.0f, 0.0f, 0.0f);
 }
 
+__device__ float3 light_source(float3 light_color,
+                               float3 position,
+                               float3 light_position,
+                               float3 normal,
+                               float kd = 0.7f,
+                               float ks = 0.3f,
+                               float ka = 100.0f) {
+    float3 light_vec = normalize(light_position - position);
+    float3 ray_position = position + light_vec;
+    float3 diffuse = kd * clamp(dot(normal, light_vec), 0.0f, 1.0f) * light_color;
+    return diffuse;
+}
+
+__device__ float3 shade(float3 position, float3 origin, float3 normal) {
+    float3 top_light_color = make_float3(0.6f, 0.6f, 0.0f);
+    float3 self_light_color = make_float3(0.4f, 0.0f, 0.4f);
+    
+    float3 top_light_pos = make_float3(10.0f, 30.0f, 0.0f);
+    float3 self_light_pos = origin;
+    
+    float3 top_light = light_source(top_light_color, position, top_light_pos,
+                                    normal);
+    float3 self_light = light_source(self_light_color, position, self_light_pos,
+                                     normal);
+                                     
+    float3 total_light = top_light + self_light;
+    
+    return total_light;
+}
+
 __device__ inline float to_render_dist(float dist, float scale_factor = 1.0f) {
     return scale_factor / (10.0f + (1.0f - clamp(abs(dist), 0.0f, 1.0f)) * 90.0f);
 }
@@ -289,8 +319,9 @@ __device__ float3 forward_pass(int x,
         
         // also on iteration tr
         float g_d = normal_pdf_rectified(ch.dist[tr]);
-        
-        ch.intensity[tr + 1] = make_float3(1.0f, 0.0f, 0.0f);
+
+        float3 normal_sample = make_float3(1.0f, 1.0f, 1.0f);
+        ch.intensity[tr] = shade(ch.pos[tr], origin, normal_sample);
         
         ch.opc[tr + 1] = ch.opc[tr] + g_d * step;
         
