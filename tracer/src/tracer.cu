@@ -58,6 +58,19 @@ __device__ void projection_gen(int x,
     ray_pos = origin + ray_vec * near;
 }
 
+// idk why the lerp in helper_math.h isn't right
+__device__ float my_lerp(float a, float b, float alpha) {
+    return a * (1.0f - alpha) + b * alpha;
+}
+
+__device__ float3 my_lerp(float3 a, float3 b, float alpha) {
+    return make_float3(
+               a.x * (1.0f - alpha) + b.x * alpha,
+               a.y * (1.0f - alpha) + b.y * alpha,
+               a.z * (1.0f - alpha) + b.z * alpha
+           );
+}
+
 template <typename T>
 __device__ T trilinear(cuda_array < T, 3>* f,
                        float3 p0,
@@ -65,21 +78,22 @@ __device__ T trilinear(cuda_array < T, 3>* f,
                        int3 sdf_shape,
                        
                        float3 position,
-                       T exterior
+                       T exterior,
+                       bool clamp_coords = false
                       ) {
-    float3 grid_space = ((position - p0) / (p1 - p0)) *
-                        make_float3(sdf_shape.x, sdf_shape.y, sdf_shape.z);
-                        
-    if (grid_space.x < 0.0f || grid_space.x < 1.0f
-            || grid_space.y < 0.0f || grid_space.y < 1.0f
-            || grid_space.z < 0.0f || grid_space.z < 1.0f) {
+    float3 sdf_shape_f = make_float3(sdf_shape.x, sdf_shape.y, sdf_shape.z);
+    float3 grid_space = ((position - p0) / (p1 - p0)) * sdf_shape_f;
+    
+    if (!clamp_coords && (grid_space.x < 0.0f || grid_space.x > sdf_shape_f.x
+                          || grid_space.y < 0.0f || grid_space.y > sdf_shape_f.y
+                          || grid_space.z < 0.0f || grid_space.z > sdf_shape_f.z)) {
         return exterior;
     }
     
     int3 lp = make_int3(
-                  clamp(int(grid_space.x), 0, sdf_shape.x - 1),
-                  clamp(int(grid_space.y), 0, sdf_shape.y - 1),
-                  clamp(int(grid_space.z), 0, sdf_shape.z - 1)
+                  clamp(int(floor(grid_space.x)), 0, sdf_shape.x - 1),
+                  clamp(int(floor(grid_space.y)), 0, sdf_shape.y - 1),
+                  clamp(int(floor(grid_space.z)), 0, sdf_shape.z - 1)
               );
     int3 up = make_int3(
                   clamp(int(ceil(grid_space.x)), 0, sdf_shape.x - 1),
@@ -98,15 +112,15 @@ __device__ T trilinear(cuda_array < T, 3>* f,
     T c110 = index(f, up.x, up.y, lp.z);
     T c111 = index(f, up.x, up.y, up.z);
     
-    T c00 = lerp(c000, c100, alpha.x);
-    T c01 = lerp(c001, c101, alpha.x);
-    T c10 = lerp(c010, c110, alpha.x);
-    T c11 = lerp(c011, c111, alpha.x);
+    T c00 = my_lerp(c000, c100, alpha.x);
+    T c01 = my_lerp(c001, c101, alpha.x);
+    T c10 = my_lerp(c010, c110, alpha.x);
+    T c11 = my_lerp(c011, c111, alpha.x);
     
-    T c0 = lerp(c00, c10, alpha.y);
-    T c1 = lerp(c01, c11, alpha.y);
+    T c0 = my_lerp(c00, c10, alpha.y);
+    T c1 = my_lerp(c01, c11, alpha.y);
     
-    T c = lerp(c0, c1, alpha.z);
+    T c = my_lerp(c0, c1, alpha.z);
     
     return c;
 }
@@ -117,7 +131,7 @@ __device__ float h(cuda_array<float, 3>* sdf,
                    unsigned int dim) {
     float h_kern[3] = {1.f, 2.f, 1.f};
     
-    uint3 c_ = clamp(pos, make_uint3(0), sdf_shape - 1);
+    uint3 c_ = clamp(pos, make_uint3(0, 0, 0), sdf_shape - 1);
     
     switch (dim) {
         case 0:
@@ -144,7 +158,7 @@ __device__ float h_p(cuda_array<float, 3>* sdf,
                      unsigned int dim) {
     float h_kern[2] = {1.f, -1.f};
     
-    uint3 c_ = clamp(pos, make_uint3(0), sdf_shape - 1);
+    uint3 c_ = clamp(pos, make_uint3(0, 0, 0), sdf_shape - 1);
     
     switch (dim) {
         case 0:
@@ -173,49 +187,47 @@ __device__ float3 sobel_at(cuda_array<float, 3>* sdf,
     float h_p_y = h(sdf, sdf_shape, pos, 1);
     float h_p_z = h(sdf, sdf_shape, pos, 2);
     
-    
     // TODO: properly handle degenerate case where
     // normal equals zero? or should we just add an offset
     return normalize(make_float3(
-                         h_p_x * h_y * h_z,
-                         h_p_y * h_z * h_x,
-                         h_p_z * h_x * h_y
+                         h_p_x * h_y * h_z + 1e-7,
+                         h_p_y * h_z * h_x + 1e-7,
+                         h_p_z * h_x * h_y + 1e-7
                      ));
 }
 
 __global__
 void sobel(
     float* sdf_, size_t sdf_shape[3],
-    float* normals_) {
-    
-    size_t normals_shape[4] = {3, sdf_shape[0], sdf_shape[1], sdf_shape[2]};
+    float3* normals_) {
     
     cuda_array<float, 3> sdf;
     assign<float, 3>(&sdf,
                      sdf_,
                      sdf_shape);
                      
-    cuda_array<float, 4> normals;
-    assign<float, 4>(&normals,
-                     normals_,
-                     normals_shape);
-                     
+    cuda_array<float3, 3> normals;
+    assign<float3, 3>(&normals,
+                      normals_,
+                      sdf_shape);
+                      
     uint i = blockIdx.x * blockDim.x + threadIdx.x;
     uint j = blockIdx.y * blockDim.y + threadIdx.y;
-    uint k = blockIdx.y * blockDim.y + threadIdx.y;
+    uint k = blockIdx.z * blockDim.z + threadIdx.z;
     
     if (i >= sdf_shape[0] || j >= sdf_shape[1] || k >= sdf_shape[2]) {
+        assert(false);
         return;
     }
     
-    float3 sb = sobel_at(&sdf,
-                         make_uint3((uint) sdf_shape[0],
-                                    (uint) sdf_shape[1],
-                                    (uint) sdf_shape[2]),
-                         make_uint3(i, j, k));
-    index(&normals, 0, i, j, k) = sb.x;
-    index(&normals, 1, i, j, k) = sb.y;
-    index(&normals, 2, i, j, k) = sb.z;
+    float3 sb = -1.0f * sobel_at(&sdf,
+                                 make_uint3((uint) sdf_shape[0],
+                                            (uint) sdf_shape[1],
+                                            (uint) sdf_shape[2]),
+                                 make_uint3(i, j, k));
+    index(&normals, i, j, k) = sb;
+    //index(&normals, i, j, k) = make_float3(i, j, k);
+    //normals.data[i + j * 64 + k * 64 * 64] = make_float3(i, j, k);
 }
 
 typedef struct {
@@ -311,22 +323,31 @@ __device__ float3 forward_pass(int x,
 #pragma unroll
     for (int tr = 0; tr < ITERATIONS; tr++) {
         ch.dist[tr] = trilinear<float>(sdf, p0, p1, make_int3(sdf_shape), ch.pos[tr],
-                                       1.0f);
+                                       1.0f, true);
         // on iteration tr, because the pos was from iteration tr
         float ds = to_render_dist(ch.dist[tr]);
         
         float step = ds;
+        //float step = ch.dist[tr];
         ch.pos[tr + 1] = ch.pos[tr] + step * ray_vec;
         
         // also on iteration tr
         float g_d = normal_pdf_rectified(ch.dist[tr]);
-
-        float3 normal_sample = make_float3(1.0f, 1.0f, 1.0f);
+        
+        //float3 normal_sample = make_float3(1.0f, 1.0f, 1.0f);
         //float3 normal_sample = index(normals, 30, 30, 30);
-        //float3 normal_sample = trilinear<float3>(normals, p0, p1,
-        //                                         make_int3(sdf_shape),
-        //                                         ch.pos[tr],
-        //                                         make_float3(0.0f, 0.0f, 0.0f));
+        
+        /*float3 ext = make_float3(0.0f, 0.0f, 0.0f);
+        float3 normal_sample = trilinear<float3>(normals, p0, p1,
+                               make_int3(sdf_shape),
+                               ch.pos[tr],
+                               ext);*/
+        float3 normal_sample = trilinear<float3>(normals, p0, p1,
+                               make_int3(sdf_shape),
+                               ch.pos[tr],
+                               make_float3(0.0f, 0.0f, 0.0f),
+                               true);
+        
         ch.intensity[tr] = shade(ch.pos[tr], origin, normal_sample);
         
         ch.opc[tr + 1] = ch.opc[tr] + g_d * step;
@@ -336,10 +357,11 @@ __device__ float3 forward_pass(int x,
         ch.volumetric_shaded[tr + 1] =
             ch.volumetric_shaded[tr] + scattering * expf(k * ch.opc[tr + 1]) *
             ch.intensity[tr];
+        //ch.volumetric_shaded[tr + 1] = normal_sample;
     }
     
-    //return ch.volumetric_shaded[ITERATIONS];
-    return index(normals, x, y, 30);
+    return ch.volumetric_shaded[ITERATIONS];
+    //return index(normals, x / (1000 / 64), y / (1000 / 64), 30);
 }
 
 __global__
@@ -347,7 +369,7 @@ void render(float* projection_matrix_,
             float* view_matrix_,
             float* transform_matrix_,
             float* sdf_, size_t sdf_shape[3],
-            float* normals_,
+            float3* normals_,
             float* p0_,
             float* p1_,
             float* target_,
@@ -368,7 +390,6 @@ void render(float* projection_matrix_,
     size_t mat4_size[2] = {4, 4};
     size_t vec3_size[1] = {3};
     size_t image_size[3] = {3, width, height};
-    size_t normals_shape[4] = {3, sdf_shape[0], sdf_shape[1], sdf_shape[2]};
     
     cuda_array<float, 2> projection;
     assign<float, 2>(&projection,
@@ -389,19 +410,11 @@ void render(float* projection_matrix_,
     assign<float, 3>(&sdf,
                      sdf_,
                      sdf_shape);
-
-    cuda_array<float, 4> normals_unpacked;
-    assign<float, 4>(&normals_unpacked,
-                     normals_,
-                     normals_shape);
-    cuda_array<float3, 3> normals;
-    reinterpret<float, float3, 4, 3>(&normals_unpacked,
-                                     &normals,
-                                     sdf_shape);
-    /*cuda_array<float3, 3> normals;
-    assign<float3, 3>(&normals, normals_,
-                      sdf_shape);*/
                      
+    cuda_array<float3, 3> normals;
+    assign<float3, 3>(&normals, normals_,
+                      sdf_shape);
+                      
     cuda_array<float, 1> p0;
     assign<float, 1>(&p0,
                      p0_,
@@ -447,10 +460,6 @@ void trace() {
         64, 64, 64
     };
     
-    size_t n_sobel_matrix[4] = {
-        3, n_matrix[0], n_matrix[1], n_matrix[2]
-    };
-    
     const float projection_matrix[4][4] = {
         {0.75, 0.0, 0.0,  0.0},
         {0.0,  1.0, 0.0,  0.0},
@@ -466,7 +475,7 @@ void trace() {
     };
     
     const float transform_matrix[4][4] = {
-        {1.0f, 0.0f, 0.0f, -0.5f},
+        {1.0f, 0.0f, 0.0f, 0.0f},
         {0.0, 1.0f, 0.0f, 0.0f},
         {0.0f, 0.0f, 1.0f, 0.0},
         {0.0f, 0.0f, 0.0f, 1.0}
@@ -491,7 +500,6 @@ void trace() {
     size_t* mat4_dims_device;
     size_t* vec3_dims_device;
     size_t* n_matrix_device;
-    size_t* n_sobel_matrix_device;
     size_t* img_dims_device;
     size_t* single_dim_device;
     
@@ -516,10 +524,10 @@ void trace() {
                    sdf_host);
     float* sdf_device = to_device<float, 3>(sdf_host, &n_matrix_device);
     
-    cuda_array<float, 4>* normals_host = create<float, 4>(n_sobel_matrix);
-    float* normals_device = to_device<float, 4>(normals_host,
-                            &n_sobel_matrix_device);
-                            
+    cuda_array<float3, 3>* normals_host = create<float3, 3>(n_matrix);
+    float3* normals_device = to_device<float3, 3>(normals_host,
+                             &n_matrix_device);
+                             
     cuda_array<float, 1>* p0_host = create<float, 1>(vec3_dims);
     assign(p0_host, (float*) p0_matrix, vec3_dims, true);
     float* p0_device = to_device<float, 1>(p0_host, &vec3_dims_device);
@@ -546,23 +554,23 @@ void trace() {
                                      &mat4_dims_device);
                                      
     const size_t sobel_block_size = 4;
-    const size_t sobel_grid_size_x = (int)(ceil((float) n_sobel_matrix[0] /
+    const size_t sobel_grid_size_x = (int)(ceil((float) n_matrix[0] /
                                            (float) sobel_block_size));
-    const size_t sobel_grid_size_y = (int)(ceil((float) n_sobel_matrix[2] /
+    const size_t sobel_grid_size_y = (int)(ceil((float) n_matrix[1] /
                                            (float) sobel_block_size));
-    const size_t sobel_grid_size_z = (int)(ceil((float) n_sobel_matrix[3] /
+    const size_t sobel_grid_size_z = (int)(ceil((float) n_matrix[2] /
                                            (float) sobel_block_size));
                                            
     dim3 sobel_blocks(sobel_grid_size_x, sobel_grid_size_y, sobel_grid_size_z);
     dim3 sobel_threads(sobel_block_size, sobel_block_size, sobel_block_size);
     
-    sobel <<< sobel_blocks, sobel_threads>>> (sdf_device,
+    sobel <<< sobel_blocks, sobel_threads, 0 >>> (sdf_device,
             n_matrix_device,
             normals_device);
             
-    cudaThreadSynchronize();
+    //cudaThreadSynchronize();
     
-    const size_t block_size = 32;
+    const size_t block_size = 16;
     const size_t grid_size_x = (int)(ceil((float) width / (float) block_size));
     const size_t grid_size_y = (int)(ceil((float) height / (float) block_size));
     
@@ -571,24 +579,24 @@ void trace() {
     
     auto start = std::chrono::steady_clock::now();
     
-    render <<< blocks, threads>>> (projection_device,
-                                   view_device,
-                                   transform_device,
-                                   
-                                   sdf_device, n_matrix_device,
-                                   normals_device,
-                                   p0_device, p1_device,
-                                   
-                                   target_device,
-                                   
-                                   width, height,
-                                   
-                                   // outputs
-                                   loss_device,
-                                   forward_device,
-                                   dloss_dsdf_device,
-                                   dloss_dtransform_device
-                                  );
+    render <<< blocks, threads, 0 >>> (projection_device,
+                                       view_device,
+                                       transform_device,
+                                       
+                                       sdf_device, n_matrix_device,
+                                       normals_device,
+                                       p0_device, p1_device,
+                                       
+                                       target_device,
+                                       
+                                       width, height,
+                                       
+                                       // outputs
+                                       loss_device,
+                                       forward_device,
+                                       dloss_dsdf_device,
+                                       dloss_dtransform_device
+                                      );
     cudaThreadSynchronize();
     
     auto end = std::chrono::steady_clock::now();
@@ -600,6 +608,7 @@ void trace() {
               << " ms"
               << std::endl << std::endl;
               
+    //to_host<float3, 3>(normals_device, normals_host);
     to_host<float, 2>(projection_device, projection_host);
     to_host<float, 3>(forward_device, forward_host);
     

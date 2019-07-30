@@ -71,28 +71,28 @@ __host__ void delete_array(cuda_array<T, N>* array) {
     delete array;
 }
 
-template <typename T, size_t N>
-__host__ __device__ T& index(cuda_array<T, N>* arr, const int& i) {
+template <typename T>
+__host__ __device__ T& index(cuda_array<T, 1>* arr, const int& i) {
     return arr->data[i * arr->stride[0]];
 }
 
-template <typename T, size_t N>
-__host__ __device__ T& index(cuda_array<T, N>* arr,
+template <typename T>
+__host__ __device__ T& index(cuda_array<T, 2>* arr,
                              const int& i,
                              const int& j) {
     return arr->data[i * arr->stride[0] + j * arr->stride[1]];
 }
 
-template <typename T, size_t N>
-__host__ __device__ T& index(cuda_array<T, N>* arr,
+template <typename T>
+__host__ __device__ T& index(cuda_array<T, 3>* arr,
                              const int& i,
                              const int& j,
                              const int& k) {
     return arr->data[i * arr->stride[0] + j * arr->stride[1] + k * arr->stride[2]];
 }
 
-template <typename T, size_t N>
-__host__ __device__ T& index(cuda_array<T, N>* arr,
+template <typename T>
+__host__ __device__ T& index(cuda_array<T, 4>* arr,
                              const int& i,
                              const int& j,
                              const int& k,
@@ -102,7 +102,10 @@ __host__ __device__ T& index(cuda_array<T, N>* arr,
 }
 
 float example_sphere(float x, float y, float z) {
-    return sqrtf(x * x + y * y + z * z) - 3.0f;
+    float xi = x + 0.1f;
+    float yi = y + 0.1f;
+    float zi = z + 0.1f;
+    return sqrtf(xi * xi + yi * yi + zi * zi) - 3.0f;
 }
 
 template <typename T>
