@@ -10,6 +10,8 @@
 
 #include "cuda_matmul.hpp"
 
+#define ITERATIONS 500
+
 __device__ void projection_gen(int x,
                                int y,
                                cuda_array<float, 2>* projection,
@@ -201,7 +203,7 @@ void sobel(
     uint i = blockIdx.x * blockDim.x + threadIdx.x;
     uint j = blockIdx.y * blockDim.y + threadIdx.y;
     uint k = blockIdx.y * blockDim.y + threadIdx.y;
-
+    
     if (i >= sdf_shape[0] || j >= sdf_shape[1] || k >= sdf_shape[2]) {
         return;
     }
@@ -214,6 +216,18 @@ void sobel(
     index(&normals, 0, i, j, k) = sb.x;
     index(&normals, 1, i, j, k) = sb.y;
     index(&normals, 2, i, j, k) = sb.z;
+}
+
+typedef struct {
+    float3 pos[ITERATIONS + 1];
+    float opc[ITERATIONS + 1];
+    float3 intensity[ITERATIONS + 1];
+    float3 volumetric_shaded[ITERATIONS + 1];
+} chk;
+
+__device__ void create_chk(chk& c) {
+    c.opc[0] = 0.0f;
+    c.volumetric_shaded[0] = make_float3(0.0f, 0.0f, 0.0f);
 }
 
 __device__ float3 forward_pass(int x,
@@ -229,21 +243,24 @@ __device__ float3 forward_pass(int x,
                                cuda_array<float, 2>* ray_transform,
                                
                                int width,
-                               int height
-                              ) {
+                               int height,
+                               chk& ch
+                              ) {    
     float3 ray_pos = make_float3(0.0f, 0.0f, 0.0f);
     float3 ray_vec = make_float3(0.0f, 0.0f, 0.0f);
     float3 origin = make_float3(0.0f, 0.0f, 0.0f);
     
     projection_gen(x, y, projection, view, width, height, ray_pos, ray_vec, origin);
-
-    float3 pos = ray_pos;
-    for (int tr = 0; tr < 50; tr++) {
-        pos += trilinear<float>(sdf, p0, p1, make_int3(sdf_shape), pos, 1.0f) * ray_vec;
+    
+    ch.pos[0] = ray_pos;
+#pragma unroll
+    for (int tr = 0; tr < ITERATIONS; tr++) {
+        ch.pos[tr + 1] = ch.pos[tr] + trilinear<float>(sdf, p0, p1,
+                         make_int3(sdf_shape),
+                         ch.pos[tr], 1.0f) * ray_vec;
     }
     
-    //return ray_vec;
-    return pos;
+    return ch.pos[ITERATIONS];
 }
 
 __global__
@@ -311,18 +328,21 @@ void render(float* projection_matrix_,
     assign<float, 3>(&forward,
                      forward_,
                      image_size);
-
+                     
     float3 p0_p = make_float3(index(&p0, 0), index(&p0, 1), index(&p0, 2));
     float3 p1_p = make_float3(index(&p1, 0), index(&p1, 1), index(&p1, 2));
     uint3 sdf_shape_p = make_uint3(sdf_shape[0],
                                    sdf_shape[1],
                                    sdf_shape[2]);
-                     
+                                   
+    chk ch;
+    create_chk(ch);
+    
     float3 c = forward_pass(i, j,
                             &sdf, p0_p, p1_p, sdf_shape_p,
                             &projection, &view, &transform,
-                            width, height);
-
+                            width, height, ch);
+                            
     index(&forward, 0, i, j) = c.x;
     index(&forward, 1, i, j) = c.y;
     index(&forward, 2, i, j) = c.z;
@@ -445,16 +465,16 @@ void trace() {
     sobel <<< sobel_blocks, sobel_threads>>> (sdf_device,
             n_matrix_device,
             normals_device);
-
-    cudaThreadSynchronize();
             
+    cudaThreadSynchronize();
+    
     const size_t block_size = 32;
     const size_t grid_size_x = (int)(ceil((float) width / (float) block_size));
     const size_t grid_size_y = (int)(ceil((float) height / (float) block_size));
     
     dim3 blocks(grid_size_x, grid_size_y);
     dim3 threads(block_size, block_size);
-
+    
     auto start = std::chrono::steady_clock::now();
     
     render <<< blocks, threads>>> (projection_device,
@@ -475,16 +495,16 @@ void trace() {
                                    dloss_dtransform_device
                                   );
     cudaThreadSynchronize();
-
+    
     auto end = std::chrono::steady_clock::now();
-
+    
     auto diff = end - start;
-
+    
     std::cout << "Rendered image in "
               << std::chrono::duration <float, std::milli> (diff).count()
               << " ms"
               << std::endl << std::endl;
-                                  
+              
     to_host<float, 2>(projection_device, projection_host);
     to_host<float, 3>(forward_device, forward_host);
     
