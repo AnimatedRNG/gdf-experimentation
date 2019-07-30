@@ -183,9 +183,9 @@ __device__ float3 sobel_at(cuda_array<float, 3>* sdf,
     float h_y = h(sdf, sdf_shape, pos, 1);
     float h_z = h(sdf, sdf_shape, pos, 2);
     
-    float h_p_x = h(sdf, sdf_shape, pos, 0);
-    float h_p_y = h(sdf, sdf_shape, pos, 1);
-    float h_p_z = h(sdf, sdf_shape, pos, 2);
+    float h_p_x = h_p(sdf, sdf_shape, pos, 0);
+    float h_p_y = h_p(sdf, sdf_shape, pos, 1);
+    float h_p_z = h_p(sdf, sdf_shape, pos, 2);
     
     // TODO: properly handle degenerate case where
     // normal equals zero? or should we just add an offset
@@ -234,6 +234,7 @@ typedef struct {
     float3 pos[ITERATIONS + 1];
     float dist[ITERATIONS + 1];
     float opc[ITERATIONS + 1];
+    float3 normals[ITERATIONS + 1];
     float3 intensity[ITERATIONS + 1];
     float3 volumetric_shaded[ITERATIONS + 1];
 } chk;
@@ -323,7 +324,7 @@ __device__ float3 forward_pass(int x,
 #pragma unroll
     for (int tr = 0; tr < ITERATIONS; tr++) {
         ch.dist[tr] = trilinear<float>(sdf, p0, p1, make_int3(sdf_shape), ch.pos[tr],
-                                       1.0f, true);
+                                       1.0f);
         // on iteration tr, because the pos was from iteration tr
         float ds = to_render_dist(ch.dist[tr]);
         
@@ -334,21 +335,12 @@ __device__ float3 forward_pass(int x,
         // also on iteration tr
         float g_d = normal_pdf_rectified(ch.dist[tr]);
         
-        //float3 normal_sample = make_float3(1.0f, 1.0f, 1.0f);
-        //float3 normal_sample = index(normals, 30, 30, 30);
-        
-        /*float3 ext = make_float3(0.0f, 0.0f, 0.0f);
-        float3 normal_sample = trilinear<float3>(normals, p0, p1,
-                               make_int3(sdf_shape),
-                               ch.pos[tr],
-                               ext);*/
-        float3 normal_sample = trilinear<float3>(normals, p0, p1,
-                               make_int3(sdf_shape),
-                               ch.pos[tr],
-                               make_float3(0.0f, 0.0f, 0.0f),
-                               true);
-        
-        ch.intensity[tr] = shade(ch.pos[tr], origin, normal_sample);
+        ch.normals[tr] = trilinear<float3>(normals, p0, p1,
+                                           make_int3(sdf_shape),
+                                           ch.pos[tr],
+                                           make_float3(0.0f, 0.0f, 0.0f));
+                                           
+        ch.intensity[tr] = shade(ch.pos[tr], origin, ch.normals[tr]);
         
         ch.opc[tr + 1] = ch.opc[tr] + g_d * step;
         
@@ -356,10 +348,10 @@ __device__ float3 forward_pass(int x,
         
         ch.volumetric_shaded[tr + 1] =
             ch.volumetric_shaded[tr] + scattering * expf(k * ch.opc[tr + 1]) *
-            ch.intensity[tr];
-        //ch.volumetric_shaded[tr + 1] = normal_sample;
+            ch.intensity[tr] * step;
     }
     
+    //return ch.intensity[ITERATIONS / 2];
     return ch.volumetric_shaded[ITERATIONS];
     //return index(normals, x / (1000 / 64), y / (1000 / 64), 30);
 }
@@ -457,7 +449,7 @@ void render(float* projection_matrix_,
 
 void trace() {
     size_t n_matrix[3] = {
-        64, 64, 64
+        128, 128, 128
     };
     
     const float projection_matrix[4][4] = {
@@ -477,7 +469,7 @@ void trace() {
     const float transform_matrix[4][4] = {
         {1.0f, 0.0f, 0.0f, 0.0f},
         {0.0, 1.0f, 0.0f, 0.0f},
-        {0.0f, 0.0f, 1.0f, 0.0},
+        {0.0f, 0.0f, 1.0f, 0.0f},
         {0.0f, 0.0f, 0.0f, 1.0}
     };
     
@@ -489,8 +481,8 @@ void trace() {
         4.0f, 4.0f, 4.0f
     };
     
-    const int width = 1000;
-    const int height = 1000;
+    const int width = 500;
+    const int height = 500;
     
     size_t mat4_dims[2] = {4, 4};
     size_t vec3_dims[1] = {3};

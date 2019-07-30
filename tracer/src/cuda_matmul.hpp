@@ -102,9 +102,9 @@ __host__ __device__ T& index(cuda_array<T, 4>* arr,
 }
 
 float example_sphere(float x, float y, float z) {
-    float xi = x + 0.1f;
-    float yi = y + 0.1f;
-    float zi = z + 0.1f;
+    float xi = x;
+    float yi = y;
+    float zi = z;
     return sqrtf(xi * xi + yi * yi + zi * zi) - 3.0f;
 }
 
