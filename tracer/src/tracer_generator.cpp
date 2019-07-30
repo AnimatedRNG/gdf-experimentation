@@ -457,7 +457,7 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
             (TupleVec<3>(volumetric_shaded(x, y, tr)) + (scattering * Halide::exp(k * opc(x,
                     y, tr + 1))) *
              //TupleVec<3>(intensity(x, y, tr)) * Expr(dist_render(x, y, tr))).get();
-             TupleVec<3>(intensity(x, y, tr)) * step).get();
+             TupleVec<3>(intensity(x, y, tr + 1)) * step).get();
 
         normals_debug(x, y, t) = (trilinear<3>(
                                       *(sb[name]),

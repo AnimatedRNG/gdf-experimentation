@@ -1,7 +1,10 @@
 #include <iostream>
+#include <chrono>
 #include <functional>
+
 #include "math.h"
 #include "helper_math.h"
+
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
@@ -104,30 +107,6 @@ __device__ T trilinear(cuda_array < T, 3>* f,
     T c = lerp(c0, c1, alpha.z);
     
     return c;
-}
-
-__device__ float3 forward_pass(int x,
-                               int y,
-                               cuda_array<float, 3>* sdf,
-                               cuda_array<float, 1>* p0,
-                               cuda_array<float, 1>* p1,
-                               size_t sdf_shape[3],
-                               
-                               
-                               cuda_array<float, 2>* projection,
-                               cuda_array<float, 2>* view,
-                               cuda_array<float, 2>* ray_transform,
-                               
-                               int width,
-                               int height
-                              ) {
-    float3 ray_pos = make_float3(0.0f, 0.0f, 0.0f);
-    float3 ray_vec = make_float3(0.0f, 0.0f, 0.0f);
-    float3 origin = make_float3(0.0f, 0.0f, 0.0f);
-    
-    projection_gen(x, y, projection, view, width, height, ray_pos, ray_vec, origin);
-    
-    return ray_vec;
 }
 
 __device__ float h(cuda_array<float, 3>* sdf,
@@ -237,6 +216,36 @@ void sobel(
     index(&normals, 2, i, j, k) = sb.z;
 }
 
+__device__ float3 forward_pass(int x,
+                               int y,
+                               cuda_array<float, 3>* sdf,
+                               float3 p0,
+                               float3 p1,
+                               uint3 sdf_shape,
+                               
+                               
+                               cuda_array<float, 2>* projection,
+                               cuda_array<float, 2>* view,
+                               cuda_array<float, 2>* ray_transform,
+                               
+                               int width,
+                               int height
+                              ) {
+    float3 ray_pos = make_float3(0.0f, 0.0f, 0.0f);
+    float3 ray_vec = make_float3(0.0f, 0.0f, 0.0f);
+    float3 origin = make_float3(0.0f, 0.0f, 0.0f);
+    
+    projection_gen(x, y, projection, view, width, height, ray_pos, ray_vec, origin);
+
+    float3 pos = ray_pos;
+    for (int tr = 0; tr < 50; tr++) {
+        pos += trilinear<float>(sdf, p0, p1, make_int3(sdf_shape), pos, 1.0f) * ray_vec;
+    }
+    
+    //return ray_vec;
+    return pos;
+}
+
 __global__
 void render(float* projection_matrix_,
             float* view_matrix_,
@@ -302,9 +311,15 @@ void render(float* projection_matrix_,
     assign<float, 3>(&forward,
                      forward_,
                      image_size);
+
+    float3 p0_p = make_float3(index(&p0, 0), index(&p0, 1), index(&p0, 2));
+    float3 p1_p = make_float3(index(&p1, 0), index(&p1, 1), index(&p1, 2));
+    uint3 sdf_shape_p = make_uint3(sdf_shape[0],
+                                   sdf_shape[1],
+                                   sdf_shape[2]);
                      
     float3 c = forward_pass(i, j,
-                            &sdf, &p0, &p1, sdf_shape,
+                            &sdf, p0_p, p1_p, sdf_shape_p,
                             &projection, &view, &transform,
                             width, height);
 
@@ -351,8 +366,8 @@ void trace() {
         4.0f, 4.0f, 4.0f
     };
     
-    const int width = 100;
-    const int height = 100;
+    const int width = 1000;
+    const int height = 1000;
     
     size_t mat4_dims[2] = {4, 4};
     size_t vec3_dims[1] = {3};
@@ -430,13 +445,17 @@ void trace() {
     sobel <<< sobel_blocks, sobel_threads>>> (sdf_device,
             n_matrix_device,
             normals_device);
+
+    cudaThreadSynchronize();
             
-    const size_t block_size = 8;
+    const size_t block_size = 32;
     const size_t grid_size_x = (int)(ceil((float) width / (float) block_size));
     const size_t grid_size_y = (int)(ceil((float) height / (float) block_size));
     
     dim3 blocks(grid_size_x, grid_size_y);
     dim3 threads(block_size, block_size);
+
+    auto start = std::chrono::steady_clock::now();
     
     render <<< blocks, threads>>> (projection_device,
                                    view_device,
@@ -455,6 +474,16 @@ void trace() {
                                    dloss_dsdf_device,
                                    dloss_dtransform_device
                                   );
+    cudaThreadSynchronize();
+
+    auto end = std::chrono::steady_clock::now();
+
+    auto diff = end - start;
+
+    std::cout << "Rendered image in "
+              << std::chrono::duration <float, std::milli> (diff).count()
+              << " ms"
+              << std::endl << std::endl;
                                   
     to_host<float, 2>(projection_device, projection_host);
     to_host<float, 3>(forward_device, forward_host);
