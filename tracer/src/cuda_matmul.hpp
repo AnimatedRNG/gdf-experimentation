@@ -72,6 +72,16 @@ __host__ __device__ T& index(cuda_array<T, N>* arr,
     return arr->data[i * arr->stride[0] + j * arr->stride[1] + k * arr->stride[2]];
 }
 
+template <typename T, size_t N>
+__host__ __device__ T& index(cuda_array<T, N>* arr,
+                             const int& i,
+                             const int& j,
+                             const int& k,
+                             const int& l) {
+    return arr->data[i * arr->stride[0] + j * arr->stride[1] + k * arr->stride[2]
+        + l * arr->stride[3]];
+}
+
 float example_sphere(float x, float y, float z) {
     return sqrtf(x * x + y * y + z * z) - 3.0f;
 }
@@ -98,11 +108,17 @@ __host__ void fill(cuda_array<T, 3>* arr, const T& val) {
 
 template <typename T>
 __host__ void gen_sdf(std::function<float(float, float, float)> func,
+                      float p0_x, float p0_y, float p0_z,
+                      float p1_x, float p1_y, float p1_z,
                       cuda_array<T, 3>* arr) {
     for (int k = 0; k < arr->shape[2]; k++) {
         for (int j = 0; j < arr->shape[1]; j++) {
             for (int i = 0; i < arr->shape[0]; i++) {
-                index(arr, i, j, k) = func(i, j, k);
+                float x = ((float) i) / ((float) arr->shape[0]) * (p1_x - p0_x) + p0_x;
+                float y = ((float) j) / ((float) arr->shape[1]) * (p1_y - p0_y) + p0_y;
+                float z = ((float) k) / ((float) arr->shape[2]) * (p1_z - p0_z) + p0_z;
+
+                index(arr, i, j, k) = func(x, y, z);
             }
         }
     }
