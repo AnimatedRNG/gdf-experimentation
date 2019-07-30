@@ -220,6 +220,7 @@ void sobel(
 
 typedef struct {
     float3 pos[ITERATIONS + 1];
+    float dist[ITERATIONS + 1];
     float opc[ITERATIONS + 1];
     float3 intensity[ITERATIONS + 1];
     float3 volumetric_shaded[ITERATIONS + 1];
@@ -228,6 +229,25 @@ typedef struct {
 __device__ void create_chk(chk& c) {
     c.opc[0] = 0.0f;
     c.volumetric_shaded[0] = make_float3(0.0f, 0.0f, 0.0f);
+}
+
+__device__ inline float to_render_dist(float dist, float scale_factor = 1.0f) {
+    return scale_factor / (10.0f + (1.0f - clamp(abs(dist), 0.0f, 1.0f)) * 90.0f);
+}
+
+__device__ inline float normal_pdf(float x, float sigma = 1e-7f,
+                                   float mean = 0.0f) {
+    return (1.0f / sqrtf(2.0f * (float) M_PI * sigma * sigma)) *
+           expf((x - mean) * (x - mean) / (-2.0f * sigma * sigma));
+}
+
+__device__ inline float relu(float a) {
+    return max(a, 0.0f);
+}
+
+__device__ inline float normal_pdf_rectified(float x, float sigma = 1e-2f,
+        float mean = 0.0f) {
+    return normal_pdf(relu(x), sigma, mean);
 }
 
 __device__ float3 forward_pass(int x,
@@ -245,22 +265,43 @@ __device__ float3 forward_pass(int x,
                                int width,
                                int height,
                                chk& ch
-                              ) {    
+                              ) {
     float3 ray_pos = make_float3(0.0f, 0.0f, 0.0f);
     float3 ray_vec = make_float3(0.0f, 0.0f, 0.0f);
     float3 origin = make_float3(0.0f, 0.0f, 0.0f);
     
+    const float u_s = 1.0f;
+    const float k = -1.0f;
+    
     projection_gen(x, y, projection, view, width, height, ray_pos, ray_vec, origin);
     
-    ch.pos[0] = ray_pos;
+    float3 transformed_ray_pos = apply_affine<float>(ray_transform, ray_pos);
+    ch.pos[0] = transformed_ray_pos;
 #pragma unroll
     for (int tr = 0; tr < ITERATIONS; tr++) {
-        ch.pos[tr + 1] = ch.pos[tr] + trilinear<float>(sdf, p0, p1,
-                         make_int3(sdf_shape),
-                         ch.pos[tr], 1.0f) * ray_vec;
+        ch.dist[tr] = trilinear<float>(sdf, p0, p1, make_int3(sdf_shape), ch.pos[tr],
+                                       1.0f);
+        // on iteration tr, because the pos was from iteration tr
+        float ds = to_render_dist(ch.dist[tr]);
+        
+        float step = ds;
+        ch.pos[tr + 1] = ch.pos[tr] + step * ray_vec;
+        
+        // also on iteration tr
+        float g_d = normal_pdf_rectified(ch.dist[tr]);
+        
+        ch.intensity[tr + 1] = make_float3(1.0f, 0.0f, 0.0f);
+        
+        ch.opc[tr + 1] = ch.opc[tr] + g_d * step;
+        
+        float scattering = g_d * u_s;
+        
+        ch.volumetric_shaded[tr + 1] =
+            ch.volumetric_shaded[tr] + scattering * expf(k * ch.opc[tr + 1]) *
+            ch.intensity[tr];
     }
     
-    return ch.pos[ITERATIONS];
+    return ch.volumetric_shaded[ITERATIONS];
 }
 
 __global__
@@ -372,7 +413,7 @@ void trace() {
     };
     
     const float transform_matrix[4][4] = {
-        {1.0f, 0.0f, 0.0f, 0.0f},
+        {1.0f, 0.0f, 0.0f, -0.5f},
         {0.0, 1.0f, 0.0f, 0.0f},
         {0.0f, 0.0f, 1.0f, 0.0},
         {0.0f, 0.0f, 0.0f, 1.0}

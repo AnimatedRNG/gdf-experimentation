@@ -330,8 +330,7 @@ __host__ __device__ void matmul_sq(cuda_array<T, N>* a, cuda_array<T, N>* b,
 
 template <typename T>
 __host__ __device__ float3 matvec(cuda_array<T, 2>* a, const float3& b) {
-    return make_float3(index(a, 0, 0) * b.x + index(a, 0, 1) * b.y + index(a, 0,
-                       2) * b.z,
+    return make_float3(index(a, 0, 0) * b.x + index(a, 0, 1) * b.y + index(a, 0, 2) * b.z,
                        index(a, 1, 0) * b.x + index(a, 1, 1) * b.y + index(a, 1, 2) * b.z,
                        index(a, 2, 0) * b.x + index(a, 2, 1) * b.y + index(a, 2, 2) * b.z);
 }
@@ -347,4 +346,14 @@ __host__ __device__ float4 matvec(cuda_array<T, 2>* a, const float4& b) {
     float i3 = index(a, 3, 0) * b.x + index(a, 3, 1) * b.y + index(a, 3,
                2) * b.z + index(a, 3, 3) * b.w;
     return make_float4(i0, i1, i2, i3);
+}
+
+template <typename T>
+__host__ __device__ float3 apply_affine(cuda_array<T, 2>* a, const float3& b) {
+    float4 l2 = make_float4(b.x, b.y, b.z, 1.0f);
+
+    float4 homogeneous = matvec(a, l2);
+    float4 affine_divide = homogeneous / homogeneous.w;
+
+    return make_float3(affine_divide.x, affine_divide.y, affine_divide.z);
 }
