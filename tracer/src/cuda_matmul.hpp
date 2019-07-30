@@ -46,6 +46,25 @@ __host__ __device__ void assign(cuda_array<T, N>* arr, T* ptr, size_t dims[N],
     arr->data = ptr;
 }
 
+template <typename T, typename U, size_t N, size_t M>
+__host__ __device__ void reinterpret(cuda_array<T, N>* arr,
+                                     cuda_array<U, M>* new_arr,
+                                     size_t dims[M]) {
+    size_t product_t = sizeof(T);
+    size_t product_u = sizeof(U);
+    for (int i = 0; i < N; i++) {
+        product_t *= arr->shape[i];
+    }
+
+    for (int i = 0; i < M; i++) {
+        product_u *= dims[i];
+    }
+
+    assert(product_t == product_u);
+
+    assign(new_arr, (U*) (arr->data), dims, false);
+}
+
 template <typename T, size_t N>
 __host__ void delete_array(cuda_array<T, N>* array) {
     delete[] array->data;
@@ -141,7 +160,7 @@ __host__ void write_img(const char* filename, cuda_array<float, 3>* arr) {
 
     for (int k = 0; k < arr->shape[2]; k++) {
         for (int j = 0; j < arr->shape[1]; j++) {
-            for (int i = 0; i < arr->shape[0]; i++) {
+            for (int i = arr->shape[0] - 1; i >= 0; i--) {
                 float p = index(arr, i, j, k);
                 //std::cout << p << std::endl;
                 arr_bytes[n++] = ((p < 0 ? 0 : (p > 1.0 ? 255 : p)) * 255.0);

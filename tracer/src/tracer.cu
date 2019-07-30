@@ -286,6 +286,7 @@ __device__ float3 forward_pass(int x,
                                float3 p0,
                                float3 p1,
                                uint3 sdf_shape,
+                               cuda_array<float3, 3>* normals,
                                
                                
                                cuda_array<float, 2>* projection,
@@ -321,6 +322,11 @@ __device__ float3 forward_pass(int x,
         float g_d = normal_pdf_rectified(ch.dist[tr]);
 
         float3 normal_sample = make_float3(1.0f, 1.0f, 1.0f);
+        //float3 normal_sample = index(normals, 30, 30, 30);
+        //float3 normal_sample = trilinear<float3>(normals, p0, p1,
+        //                                         make_int3(sdf_shape),
+        //                                         ch.pos[tr],
+        //                                         make_float3(0.0f, 0.0f, 0.0f));
         ch.intensity[tr] = shade(ch.pos[tr], origin, normal_sample);
         
         ch.opc[tr + 1] = ch.opc[tr] + g_d * step;
@@ -332,7 +338,8 @@ __device__ float3 forward_pass(int x,
             ch.intensity[tr];
     }
     
-    return ch.volumetric_shaded[ITERATIONS];
+    //return ch.volumetric_shaded[ITERATIONS];
+    return index(normals, x, y, 30);
 }
 
 __global__
@@ -340,6 +347,7 @@ void render(float* projection_matrix_,
             float* view_matrix_,
             float* transform_matrix_,
             float* sdf_, size_t sdf_shape[3],
+            float* normals_,
             float* p0_,
             float* p1_,
             float* target_,
@@ -360,6 +368,7 @@ void render(float* projection_matrix_,
     size_t mat4_size[2] = {4, 4};
     size_t vec3_size[1] = {3};
     size_t image_size[3] = {3, width, height};
+    size_t normals_shape[4] = {3, sdf_shape[0], sdf_shape[1], sdf_shape[2]};
     
     cuda_array<float, 2> projection;
     assign<float, 2>(&projection,
@@ -380,6 +389,18 @@ void render(float* projection_matrix_,
     assign<float, 3>(&sdf,
                      sdf_,
                      sdf_shape);
+
+    cuda_array<float, 4> normals_unpacked;
+    assign<float, 4>(&normals_unpacked,
+                     normals_,
+                     normals_shape);
+    cuda_array<float3, 3> normals;
+    reinterpret<float, float3, 4, 3>(&normals_unpacked,
+                                     &normals,
+                                     sdf_shape);
+    /*cuda_array<float3, 3> normals;
+    assign<float3, 3>(&normals, normals_,
+                      sdf_shape);*/
                      
     cuda_array<float, 1> p0;
     assign<float, 1>(&p0,
@@ -412,6 +433,7 @@ void render(float* projection_matrix_,
     
     float3 c = forward_pass(i, j,
                             &sdf, p0_p, p1_p, sdf_shape_p,
+                            &normals,
                             &projection, &view, &transform,
                             width, height, ch);
                             
@@ -554,6 +576,7 @@ void trace() {
                                    transform_device,
                                    
                                    sdf_device, n_matrix_device,
+                                   normals_device,
                                    p0_device, p1_device,
                                    
                                    target_device,
