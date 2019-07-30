@@ -20,7 +20,8 @@ __device__ void projection_gen(int x,
                               ) {
     float2 ss_norm = make_float2(((float) x) / ((float) width),
                                  ((float) y) / ((float) height));
-    float2 clip_space = ss_norm * 2.0f - 1.0f;
+    float2 clip_space_xy = ss_norm * 2.0f - 1.0f;
+    float4 clip_space = make_float4(clip_space_xy.x, clip_space_xy.y, 1.0f, 1.0f);
     
     cuda_array<float, 2> proj_view;
     float proj_view_m[4][4];
@@ -38,15 +39,7 @@ __device__ void projection_gen(int x,
     invert_matrix(proj_view.data, viewproj_inv.data);
     invert_matrix(view->data, view_inv.data);
     
-    
-    float4 homogeneous = make_float4(
-                             index(&viewproj_inv, 0, 0) * clip_space.x
-                             + index(&viewproj_inv, 0, 1) * clip_space.y,
-                             index(&viewproj_inv, 1, 0) * clip_space.x
-                             + index(&viewproj_inv, 1, 1) * clip_space.y,
-                             0.0f,
-                             0.0f
-                         );
+    float4 homogeneous = matvec<float>(&viewproj_inv, clip_space);
                          
     origin =
         make_float3(
@@ -58,6 +51,52 @@ __device__ void projection_gen(int x,
     
     ray_vec = normalize(projected);
     ray_pos = origin + ray_vec * near;
+}
+
+
+template <typename T>
+__device__ T trilinear(cuda_array < T, 3>* f,
+                       float3 p0,
+                       float3 p1,
+                       int3 sdf_shape,
+                       
+                       float3 position
+                      ) {
+    float3 grid_space = ((position - p0) / (p1 - p0)) *
+                        make_float3(sdf_shape.x, sdf_shape.y, sdf_shape.z);
+    int3 lp = make_int3(
+                  clamp(int(grid_space.x), 0, sdf_shape.x - 1),
+                  clamp(int(grid_space.y), 0, sdf_shape.y - 1),
+                  clamp(int(grid_space.z), 0, sdf_shape.z - 1)
+              );
+    int3 up = make_int3(
+                  clamp(int(ceil(grid_space.x)), 0, sdf_shape.x - 1),
+                  clamp(int(ceil(grid_space.y)), 0, sdf_shape.y - 1),
+                  clamp(int(ceil(grid_space.z)), 0, sdf_shape.z - 1)
+              );
+              
+    float3 alpha = grid_space - make_float3(lp);
+    
+    T c000 = index(f, lp.x, lp.y, lp.z);
+    T c001 = index(f, lp.x, lp.y, up.z);
+    T c010 = index(f, lp.x, up.y, lp.z);
+    T c011 = index(f, lp.x, up.y, up.z);
+    T c100 = index(f, up.x, lp.y, lp.z);
+    T c101 = index(f, up.x, lp.y, up.z);
+    T c110 = index(f, up.x, up.y, lp.z);
+    T c111 = index(f, up.x, up.y, up.z);
+
+    T c00 = lerp(c000, c100, alpha.x);
+    T c01 = lerp(c001, c101, alpha.x);
+    T c10 = lerp(c010, c110, alpha.x);
+    T c11 = lerp(c011, c111, alpha.x);
+
+    T c0 = lerp(c00, c10, alpha.y);
+    T c1 = lerp(c01, c11, alpha.y);
+
+    T c = lerp(c0, c1, alpha.z);
+
+    return c;
 }
 
 __device__ float3 forward_pass(int x,
@@ -81,7 +120,7 @@ __device__ float3 forward_pass(int x,
     
     projection_gen(x, y, projection, view, width, height, ray_pos, ray_vec, origin);
     
-    return ray_pos;
+    return ray_vec;
 }
 
 __global__
@@ -155,12 +194,12 @@ void render(float* projection_matrix_,
                             &projection, &view, &transform,
                             width, height);
                             
-    index(&forward, 0, i, j) = (float) i / width;
-    index(&forward, 1, i, j) = (float) j / height;
-    index(&forward, 2, i, j) = 0.0f;
-    //index(&forward, 0, i, j) = c.x;
-    //index(&forward, 1, i, j) = c.y;
-    //index(&forward, 2, i, j) = c.z;
+    //index(&forward, 0, i, j) = (float) i / width;
+    //index(&forward, 1, i, j) = (float) j / height;
+    //index(&forward, 2, i, j) = 0.0f;
+    index(&forward, 0, i, j) = c.x;
+    index(&forward, 1, i, j) = c.y;
+    index(&forward, 2, i, j) = c.z;
 }
 
 void trace() {

@@ -302,17 +302,18 @@ __host__ __device__ void mat4(cuda_array<T, 2>* m, T data[4][4]) {
 template <typename T, size_t N>
 __host__ __device__ void matmul_sq(cuda_array<T, N>* a, cuda_array<T, N>* b,
                                    cuda_array<T, N>* c) {
-    for (int i = 0; i < N; i++) {
-        for (int j = 0; j < N; j++) {
-            for (int k = 0; k < N; k++) {
-                index(c, i, j) = index(a, i, k) * index(b, k, j);
+    for (int i = 0; i < a->shape[0]; i++) {
+        for (int j = 0; j < a->shape[0]; j++) {
+            index(c, i, j) = 0.0f;
+            for (int k = 0; k < a->shape[0]; k++) {
+                index(c, i, j) += index(a, i, k) * index(b, k, j);
             }
         }
     }
 }
 
 template <typename T>
-__host__ __device__ float3 matvec(cuda_array<T, 3>* a, const float3& b) {
+__host__ __device__ float3 matvec(cuda_array<T, 2>* a, const float3& b) {
     return make_float3(index(a, 0, 0) * b.x + index(a, 0, 1) * b.y + index(a, 0,
                        2) * b.z,
                        index(a, 1, 0) * b.x + index(a, 1, 1) * b.y + index(a, 1, 2) * b.z,
@@ -320,9 +321,14 @@ __host__ __device__ float3 matvec(cuda_array<T, 3>* a, const float3& b) {
 }
 
 template <typename T>
-__host__ __device__ float3 matvec(cuda_array<T, 4>* a, const float3& b) {
-    return make_float3(index(a, 0, 0) * b.x + index(a, 0, 1) * b.y + index(a, 0,
-                       2) * b.z,
-                       index(a, 1, 0) * b.x + index(a, 1, 1) * b.y + index(a, 1, 2) * b.z,
-                       index(a, 2, 0) * b.x + index(a, 2, 1) * b.y + index(a, 2, 2) * b.z);
+__host__ __device__ float4 matvec(cuda_array<T, 2>* a, const float4& b) {
+    float i0 = index(a, 0, 0) * b.x + index(a, 0, 1) * b.y + index(a, 0,
+               2) * b.z + index(a, 0, 3) * b.w;
+    float i1 = index(a, 1, 0) * b.x + index(a, 1, 1) * b.y + index(a, 1,
+               2) * b.z + index(a, 1, 3) * b.w;
+    float i2 = index(a, 2, 0) * b.x + index(a, 2, 1) * b.y + index(a, 2,
+               2) * b.z + index(a, 2, 3) * b.w;
+    float i3 = index(a, 3, 0) * b.x + index(a, 3, 1) * b.y + index(a, 3,
+               2) * b.z + index(a, 3, 3) * b.w;
+    return make_float4(i0, i1, i2, i3);
 }
