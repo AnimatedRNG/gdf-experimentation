@@ -145,7 +145,8 @@ def trilinear_derivatives():
     tri = trilinear(alphas, cs)
 
     print('derivative of {} is {}'.format(
-        cs[(0, 0, 0)], diff(tri, cs[(0, 0, 0)])))
+        cs[(0, 0, 0)], expand(diff(tri, cs[(0, 0, 0)]))
+    ))
 
 
 def trilinear_sobel_derivatives():
@@ -155,9 +156,23 @@ def trilinear_sobel_derivatives():
     jacobian(neighbors, tsb)
 
 
+def vs_test():
+    SDF = symbols("SDF")
+    vs_t = Function("vs_t")(SDF)
+
+    scattering_t = Function("scattering_t")(SDF)
+    opc_t1 = Function("opc_t1")(SDF)
+    intensity = Function("intensity")(SDF)
+    k, step = symbols("k step")
+
+    vs_t1 = vs_t + scattering_t * exp(k * opc_t1) * intensity * step
+    pprint(diff(vs_t1, SDF))
+
+
 if __name__ == '__main__':
     # trilinear_derivatives()
     #neighbors = gen_neighbors()
     #jacobian(neighbors, sobel(neighbors))
 
-    trilinear_sobel_derivatives()
+    # trilinear_sobel_derivatives()
+    vs_test()
