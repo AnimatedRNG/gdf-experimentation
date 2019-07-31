@@ -152,16 +152,18 @@ def vec_elem_to_mapping(vec_str, vec_name):
     return "{name}.{index}".format(name=vec_name, index=index_to_xyzw[int(vec_str.split("_")[1])])
 
 
-def matrix_elem_to_mapping(matrix_str, matrix_name):
+def matrix_elem_to_mapping(matrix_str, matrix_name, offset_name="offset"):
     global index_to_xyzw
     if isinstance(matrix_str, str):
         return "index({name}, {indices})".format(name=matrix_name, indices=", ".join(
-            "offset.{} + {}".format(index_to_xyzw[actual_index], str_index)
+            "{}.{} + {}".format(offset_name,
+                                index_to_xyzw[actual_index], str_index)
             for actual_index, str_index in enumerate(matrix_str.split("!")[1:])
         ))
     else:
         return "index({name}, {indices})".format(name=matrix_name, indices=", ".join(
-            "offset.{} + {}".format(index_to_xyzw[actual_index], index)
+            "{}.{} + {}".format(offset_name,
+                                index_to_xyzw[actual_index], index)
             for actual_index, index in enumerate(matrix_str)
         ))
 
@@ -172,7 +174,10 @@ def jacobian_to_code(inputs, outputs, mappings):
         output_mapped = mappings[output_name]
         for input_name, inp in inputs.items():
             input_mapped = mappings[input_name]
-            code += "    {} = {};\n".format(output_mapped, input_mapped)
+            deriv = str(diff(output, inp))
+            for name, replacement in mappings.items():
+                deriv = deriv.replace(str(name), replacement)
+            code += "    {} = {};\n".format(input_mapped, deriv)
     print(code)
 
 
@@ -192,13 +197,21 @@ def trilinear_sobel_derivatives():
     neighbors = gen_neighbors("SDF", 2)
     alphas = [symbols("alpha{}".format(i)) for i in range(3)]
     tsb = trilinear_sobel(alphas, neighbors)
-    jacobian(neighbors, tsb, True)
+    #jacobian(neighbors, tsb, True)
 
-    # mappings = {tsb_name: vec_elem_to_mapping(tsb_name, "dNormal_dSDF")
-    #            for tsb_name in tsb.keys()}
-    # mappings.update({neighbor_name: matrix_elem_to_mapping(neighbor_name, "SDF")
-    #                 for neighbor_name in neighbors.keys()})
-    # print(jacobian_to_code(neighbors, tsb, mappings))
+    mappings = {tsb_name: vec_elem_to_mapping(tsb_name, "dNormal_dSDF")
+                for tsb_name in tsb.keys()}
+    mappings.update({"alpha" + str(index): "alpha.{}".format(index_to_xyzw[index])
+                     for index, value in enumerate(alphas)})
+    mappings.update({neighbor_name: matrix_elem_to_mapping(neighbor_name, "normals_vals", "delete_me")
+                     for neighbor_name in neighbors.keys()})
+    sdf_names = {"SDF!{}!{}!{}".format(i, j, k): "index(sdf_vals, offset.x + {}, offset.y + {}, offset.z + {})"
+                 for i in range(-1, 3) for j in range(-1, 3) for k in range(-1, 3)}
+    mappings.update(sdf_names)
+    # print(sdf_names)
+
+    # print(mappings)
+    print(jacobian_to_code(neighbors, tsb, mappings))
 
 
 def opc_test():
