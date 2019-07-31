@@ -56,7 +56,7 @@ def gen_neighbors(name="SDF", r=1):
         for j in range(-r, r + 1):
             for k in range(-r, r + 1):
                 neighbors[(i, j, k)] = symbols(
-                    "{}{}{}{}".format(name, i, j, k))
+                    "{}!{}!{}!{}".format(name, i, j, k))
     return neighbors
 
 
@@ -130,30 +130,80 @@ def trilinear_sobel(alpha, all_sdf_neighbors):
                                  for sobel_offset, sdf_neighbors in sobel_neighbors.items()})
 
 
-def jacobian(inputs, outputs):
+def jacobian(inputs, outputs, ignore_zeros=False):
     for output_name, output in outputs.items():
-        print("d{}/d?: ".format(output_name))
+        print("\nd{}/d?: ".format(output_name))
         for input_name, inp in inputs.items():
-            print("\t/d{}: {}".format(input_name,
-                                      diff(output, inp)))
+            deriv = diff(output, inp)
+            if not (ignore_zeros and simplify(deriv) == 0):
+                print("\t/d{}: {}".format(input_name,
+                                          deriv))
+
+
+index_to_xyzw = {0: "x", 1: "y", 2: "z", 3: "w"}
+
+
+def vec_elem_to_mapping(vec_str, vec_name):
+    global index_to_xyzw
+    return "{name}.{index}".format(name=vec_name, index=index_to_xyzw[int(vec_str.split("_")[1])])
+
+
+def matrix_elem_to_mapping(matrix_str, matrix_name):
+    global index_to_xyzw
+    if isinstance(matrix_str, str):
+        return "index({name}, {indices})".format(name=matrix_name, indices=", ".join(
+            "offset.{} + {}".format(index_to_xyzw[actual_index], str_index)
+            for actual_index, str_index in enumerate(matrix_str.split("!")[1:])
+        ))
+    else:
+        return "index({name}, {indices})".format(name=matrix_name, indices=", ".join(
+            "offset.{} + {}".format(index_to_xyzw[actual_index], index)
+            for actual_index, index in enumerate(matrix_str)
+        ))
+
+
+def jacobian_to_code(inputs, outputs, mappings):
+    code = ""
+    for output_name, output in outputs.items():
+        output_mapped = mappings[output_name]
+        for input_name, inp in inputs.items():
+            input_mapped = mappings[input_name]
+            code += "    {} = {};\n".format(output_mapped, input_mapped)
+    print(code)
 
 
 def trilinear_derivatives():
     alphas = [symbols("alpha{}".format(i)) for i in range(3)]
-    cs = {(i, j, k): symbols("c{}{}{}".format(i, j, k))
+    cs = {(i, j, k): symbols("c!{}!{}!{}".format(i, j, k))
           for i in range(2) for j in range(2) for k in range(2)}
     tri = trilinear(alphas, cs)
 
-    print('derivative of {} is {}'.format(
-        cs[(0, 0, 0)], expand(diff(tri, cs[(0, 0, 0)]))
-    ))
+    print(jacobian(cs, {"tri": tri}))
+    # print('derivative of {} is {}'.format(
+    #    cs[(0, 0, 0)], expand(diff(tri, cs[(0, 0, 0)]))
+    # ))
 
 
 def trilinear_sobel_derivatives():
     neighbors = gen_neighbors("SDF", 2)
     alphas = [symbols("alpha{}".format(i)) for i in range(3)]
     tsb = trilinear_sobel(alphas, neighbors)
-    jacobian(neighbors, tsb)
+    jacobian(neighbors, tsb, True)
+
+    # mappings = {tsb_name: vec_elem_to_mapping(tsb_name, "dNormal_dSDF")
+    #            for tsb_name in tsb.keys()}
+    # mappings.update({neighbor_name: matrix_elem_to_mapping(neighbor_name, "SDF")
+    #                 for neighbor_name in neighbors.keys()})
+    #print(jacobian_to_code(neighbors, tsb, mappings))
+
+
+def opc_test():
+    SDF = symbols("SDF")
+    opc_t = Function("opc_t")(SDF)
+    g_d = Function("g_d")(SDF)
+
+    opc_t1 = opc_t + g_d
+    pprint(diff(opc_t1, SDF))
 
 
 def vs_test():
@@ -170,9 +220,16 @@ def vs_test():
 
 
 if __name__ == '__main__':
-    # trilinear_derivatives()
+    trilinear_derivatives()
     #neighbors = gen_neighbors()
     #jacobian(neighbors, sobel(neighbors))
 
     # trilinear_sobel_derivatives()
-    vs_test()
+    # vs_test()
+    # opc_test()
+
+    #cs = "cs!0!2!0"
+    #print(matrix_elem_to_mapping(cs, "cs"))
+
+    #cs = "cs_1"
+    #print(vec_elem_to_mapping(cs, "cs"))
