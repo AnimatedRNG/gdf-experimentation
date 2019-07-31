@@ -125,6 +125,66 @@ __device__ T trilinear(cuda_array < T, 3>* f,
     return c;
 }
 
+template <typename T>
+__device__ void dTrilinear_dSDF(cuda_array < int3, 3>* sdf_pos,
+                                cuda_array < float, 3>* sdf_vals,
+                                float3 p0,
+                                float3 p1,
+                                int3 sdf_shape,
+                                
+                                float3 position,
+                                bool clamp_coords = false
+                               ) {
+    float3 sdf_shape_f = make_float3(sdf_shape.x, sdf_shape.y, sdf_shape.z);
+    float3 grid_space = ((position - p0) / (p1 - p0)) * sdf_shape_f;
+    
+    if (!clamp_coords && (grid_space.x < 0.0f || grid_space.x > sdf_shape_f.x
+                          || grid_space.y < 0.0f || grid_space.y > sdf_shape_f.y
+                          || grid_space.z < 0.0f || grid_space.z > sdf_shape_f.z)) {
+        // no contribution to derivative
+        index_off(sdf_vals, 0, 0, 0, 1) = 0.0f;
+        index_off(sdf_vals, 0, 0, 1, 1) = 0.0f;
+        index_off(sdf_vals, 0, 1, 0, 1) = 0.0f;
+        index_off(sdf_vals, 0, 1, 1, 1) = 0.0f;
+        index_off(sdf_vals, 1, 0, 0, 1) = 0.0f;
+        index_off(sdf_vals, 1, 0, 1, 1) = 0.0f;
+        index_off(sdf_vals, 1, 1, 0, 1) = 0.0f;
+        index_off(sdf_vals, 1, 1, 1, 1) = 0.0f;
+    }
+    
+    int3 lp = make_int3(
+                  clamp(int(floor(grid_space.x)), 0, sdf_shape.x - 1),
+                  clamp(int(floor(grid_space.y)), 0, sdf_shape.y - 1),
+                  clamp(int(floor(grid_space.z)), 0, sdf_shape.z - 1)
+              );
+              
+    int3 up = make_int3(
+                  clamp(int(ceil(grid_space.x)), 0, sdf_shape.x - 1),
+                  clamp(int(ceil(grid_space.y)), 0, sdf_shape.y - 1),
+                  clamp(int(ceil(grid_space.z)), 0, sdf_shape.z - 1)
+              );
+              
+    float3 alpha = grid_space - make_float3(lp);
+    
+    index_off(sdf_pos, 0, 0, 0, 1) = int3(lp.x, lp.y, lp.z);
+    index_off(sdf_pos, 0, 0, 1, 1) = int3(lp.x, lp.y, up.z);
+    index_off(sdf_pos, 0, 1, 0, 1) = int3(lp.x, up.y, lp.z);
+    index_off(sdf_pos, 0, 1, 1, 1) = int3(lp.x, up.y, up.z);
+    index_off(sdf_pos, 1, 0, 0, 1) = int3(up.x, lp.y, lp.z);
+    index_off(sdf_pos, 1, 0, 1, 1) = int3(up.x, lp.y, up.z);
+    index_off(sdf_pos, 1, 1, 0, 1) = int3(up.x, up.y, lp.z);
+    index_off(sdf_pos, 1, 1, 1, 1) = int3(up.x, up.y, up.z);
+    
+    index_off(sdf_vals, 0, 0, 0, 1) = (1 - alpha.x) * (1 - alpha.y) * (1 - alpha.z);
+    index_off(sdf_vals, 0, 0, 1, 1) = alpha.z * (1 - alpha.x) * (1 - alpha.y);
+    index_off(sdf_vals, 0, 1, 0, 1) = alpha.y * (1 - alpha.x) * (1 - alpha.z);
+    index_off(sdf_vals, 0, 1, 1, 1) = alpha.y * alpha.z * (1 - alpha.x);
+    index_off(sdf_vals, 1, 0, 0, 1) = alpha.x * (1 - alpha.y) * (1 - alpha.z);
+    index_off(sdf_vals, 1, 0, 1, 1) = alpha.x * alpha.z * (1 - alpha.y);
+    index_off(sdf_vals, 1, 1, 0, 1) = alpha.x * alpha.y * (1 - alpha.z);
+    index_off(sdf_vals, 1, 1, 1, 1) = alpha.x * alpha.y * alpha.z;
+}
+
 __device__ float h(cuda_array<float, 3>* sdf,
                    uint3 sdf_shape,
                    uint3 pos,
@@ -327,7 +387,7 @@ __device__ float3 forward_pass(int x,
                                        1.0f);
         // on iteration tr, because the pos was from iteration tr
         float ds = to_render_dist(ch.dist[tr]);
-
+        
         float step = 1.0f / 100.0f;
         //float step = ds;
         // uncomment for sphere tracing

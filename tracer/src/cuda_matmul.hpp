@@ -62,7 +62,7 @@ __host__ __device__ void reinterpret(cuda_array<T, N>* arr,
 
     assert(product_t == product_u);
 
-    assign(new_arr, (U*) (arr->data), dims, false);
+    assign(new_arr, (U*)(arr->data), dims, false);
 }
 
 template <typename T, size_t N>
@@ -92,13 +92,23 @@ __host__ __device__ T& index(cuda_array<T, 3>* arr,
 }
 
 template <typename T>
+__host__ __device__ T& index_off(cuda_array<T, 3>* arr,
+                                 const int& i,
+                                 const int& j,
+                                 const int& k,
+                                 const int& off) {
+    return arr->data[(off + i) * arr->stride[0] + (off + j) * arr->stride[1] +
+                               (off + k) * arr->stride[2]];
+}
+
+template <typename T>
 __host__ __device__ T& index(cuda_array<T, 4>* arr,
                              const int& i,
                              const int& j,
                              const int& k,
                              const int& l) {
     return arr->data[i * arr->stride[0] + j * arr->stride[1] + k * arr->stride[2]
-        + l * arr->stride[3]];
+                       + l * arr->stride[3]];
 }
 
 float example_sphere(float x, float y, float z) {
@@ -352,7 +362,8 @@ __host__ __device__ void matmul_sq(cuda_array<T, N>* a, cuda_array<T, N>* b,
 
 template <typename T>
 __host__ __device__ float3 matvec(cuda_array<T, 2>* a, const float3& b) {
-    return make_float3(index(a, 0, 0) * b.x + index(a, 0, 1) * b.y + index(a, 0, 2) * b.z,
+    return make_float3(index(a, 0, 0) * b.x + index(a, 0, 1) * b.y + index(a, 0,
+                       2) * b.z,
                        index(a, 1, 0) * b.x + index(a, 1, 1) * b.y + index(a, 1, 2) * b.z,
                        index(a, 2, 0) * b.x + index(a, 2, 1) * b.y + index(a, 2, 2) * b.z);
 }
