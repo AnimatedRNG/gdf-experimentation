@@ -125,39 +125,22 @@ __device__ T trilinear(cuda_array < T, 3>* f,
     return c;
 }
 
+// returns alpha
 template <typename T>
-__device__ void dTrilinear_dSDF(cuda_array < int3, 3>* sdf_pos,
-                                cuda_array < float, 3>* sdf_vals,
-                                float3 p0,
-                                float3 p1,
-                                int3 sdf_shape,
-                                
-                                float3 position,
-                                bool clamp_coords = false
-                               ) {
+__device__ float3 populate_trilinear_pos(
+    cuda_array < int3, 3>* sdf_pos // 4x4x4
+) {
     float3 sdf_shape_f = make_float3(sdf_shape.x, sdf_shape.y, sdf_shape.z);
     float3 grid_space = ((position - p0) / (p1 - p0)) * sdf_shape_f;
     
-    if (!clamp_coords && (grid_space.x < 0.0f || grid_space.x > sdf_shape_f.x
-                          || grid_space.y < 0.0f || grid_space.y > sdf_shape_f.y
-                          || grid_space.z < 0.0f || grid_space.z > sdf_shape_f.z)) {
-        // no contribution to derivative
-        index_off(sdf_vals, 0, 0, 0, 1) = 0.0f;
-        index_off(sdf_vals, 0, 0, 1, 1) = 0.0f;
-        index_off(sdf_vals, 0, 1, 0, 1) = 0.0f;
-        index_off(sdf_vals, 0, 1, 1, 1) = 0.0f;
-        index_off(sdf_vals, 1, 0, 0, 1) = 0.0f;
-        index_off(sdf_vals, 1, 0, 1, 1) = 0.0f;
-        index_off(sdf_vals, 1, 1, 0, 1) = 0.0f;
-        index_off(sdf_vals, 1, 1, 1, 1) = 0.0f;
-    }
-    
+    // at (0, 0, 0)
     int3 lp = make_int3(
                   clamp(int(floor(grid_space.x)), 0, sdf_shape.x - 1),
                   clamp(int(floor(grid_space.y)), 0, sdf_shape.y - 1),
                   clamp(int(floor(grid_space.z)), 0, sdf_shape.z - 1)
               );
               
+    // at (1, 1, 1)
     int3 up = make_int3(
                   clamp(int(ceil(grid_space.x)), 0, sdf_shape.x - 1),
                   clamp(int(ceil(grid_space.y)), 0, sdf_shape.y - 1),
@@ -165,7 +148,10 @@ __device__ void dTrilinear_dSDF(cuda_array < int3, 3>* sdf_pos,
               );
               
     float3 alpha = grid_space - make_float3(lp);
+
+    // sdf_pos starts at (-1, -1, -1)
     
+    // region 0 - 1
     index_off(sdf_pos, 0, 0, 0, 1) = int3(lp.x, lp.y, lp.z);
     index_off(sdf_pos, 0, 0, 1, 1) = int3(lp.x, lp.y, up.z);
     index_off(sdf_pos, 0, 1, 0, 1) = int3(lp.x, up.y, lp.z);
@@ -175,14 +161,98 @@ __device__ void dTrilinear_dSDF(cuda_array < int3, 3>* sdf_pos,
     index_off(sdf_pos, 1, 1, 0, 1) = int3(up.x, up.y, lp.z);
     index_off(sdf_pos, 1, 1, 1, 1) = int3(up.x, up.y, up.z);
     
-    index_off(sdf_vals, 0, 0, 0, 1) = (1 - alpha.x) * (1 - alpha.y) * (1 - alpha.z);
-    index_off(sdf_vals, 0, 0, 1, 1) = alpha.z * (1 - alpha.x) * (1 - alpha.y);
-    index_off(sdf_vals, 0, 1, 0, 1) = alpha.y * (1 - alpha.x) * (1 - alpha.z);
-    index_off(sdf_vals, 0, 1, 1, 1) = alpha.y * alpha.z * (1 - alpha.x);
-    index_off(sdf_vals, 1, 0, 0, 1) = alpha.x * (1 - alpha.y) * (1 - alpha.z);
-    index_off(sdf_vals, 1, 0, 1, 1) = alpha.x * alpha.z * (1 - alpha.y);
-    index_off(sdf_vals, 1, 1, 0, 1) = alpha.x * alpha.y * (1 - alpha.z);
-    index_off(sdf_vals, 1, 1, 1, 1) = alpha.x * alpha.y * alpha.z;
+    // region -1 - 0
+    index_off(sdf_pos, 0, 0, 0, 0) = int3(lp.x - 1, lp.y - 1, lp.z - 1);
+    index_off(sdf_pos, 0, 0, 1, 0) = int3(lp.x - 1, lp.y - 1, up.z - 1);
+    index_off(sdf_pos, 0, 1, 0, 0) = int3(lp.x - 1, up.y - 1, lp.z - 1);
+    index_off(sdf_pos, 0, 1, 1, 0) = int3(lp.x - 1, up.y - 1, up.z - 1);
+    index_off(sdf_pos, 1, 0, 0, 0) = int3(up.x - 1, lp.y - 1, lp.z - 1);
+    index_off(sdf_pos, 1, 0, 1, 0) = int3(up.x - 1, lp.y - 1, up.z - 1);
+    index_off(sdf_pos, 1, 1, 0, 0) = int3(up.x - 1, up.y - 1, lp.z - 1);
+    index_off(sdf_pos, 1, 1, 1, 0) = int3(up.x - 1, up.y - 1, up.z - 1);
+    
+    // region 1 - 2
+    index_off(sdf_pos, 0, 0, 0, 2) = int3(lp.x + 1, lp.y + 1, lp.z + 1);
+    index_off(sdf_pos, 0, 0, 1, 2) = int3(lp.x + 1, lp.y + 1, up.z + 1);
+    index_off(sdf_pos, 0, 1, 0, 2) = int3(lp.x + 1, up.y + 1, lp.z + 1);
+    index_off(sdf_pos, 0, 1, 1, 2) = int3(lp.x + 1, up.y + 1, up.z + 1);
+    index_off(sdf_pos, 1, 0, 0, 2) = int3(up.x + 1, lp.y + 1, lp.z + 1);
+    index_off(sdf_pos, 1, 0, 1, 2) = int3(up.x + 1, lp.y + 1, up.z + 1);
+    index_off(sdf_pos, 1, 1, 0, 2) = int3(up.x + 1, up.y + 1, lp.z + 1);
+    index_off(sdf_pos, 1, 1, 1, 2) = int3(up.x + 1, up.y + 1, up.z + 1);
+    
+    return alpha;
+}
+
+template <typename T>
+__device__ void dTrilinear_dSDF(cuda_array < int3, 3>* sdf_pos,   // 4x4x4
+                                cuda_array < float, 3>* dsdf_vals, // 2x2x2
+                                float3 p0,
+                                float3 p1,
+                                int3 sdf_shape,
+                                
+                                float3 alpha,
+                                
+                                float3 position,
+                                bool clamp_coords = false
+                               ) {
+    int3 lp = index_off(sdf_pos, 0, 0, 0, 1);
+    int3 up = index_off(sdf_pos, 1, 1, 1, 1);
+    
+    if (!clamp_coords && (grid_space.x < 0.0f || grid_space.x > sdf_shape_f.x
+                          || grid_space.y < 0.0f || grid_space.y > sdf_shape_f.y
+                          || grid_space.z < 0.0f || grid_space.z > sdf_shape_f.z)) {
+        // no contribution to derivative
+        for (int i = 0; i < 2; i++) {
+            for (int j = 0; j < 2; j++) {
+                for (int k = 0; k < 2; k++) {
+                    index_off(dsdf_vals, i, j, k, 0) = 0.0f;
+                }
+            }
+        }
+    } else {
+        // NOTE -- offset 0 because dsdf_vals starts at (0, 0, 0)
+        index_off(dsdf_vals, 0, 0, 0, 0) = (1 - alpha.x) * (1 - alpha.y) * (1 - alpha.z);
+        index_off(dsdf_vals, 0, 0, 1, 0) = alpha.z * (1 - alpha.x) * (1 - alpha.y);
+        index_off(dsdf_vals, 0, 1, 0, 0) = alpha.y * (1 - alpha.x) * (1 - alpha.z);
+        index_off(dsdf_vals, 0, 1, 1, 0) = alpha.y * alpha.z * (1 - alpha.x);
+        index_off(dsdf_vals, 1, 0, 0, 0) = alpha.x * (1 - alpha.y) * (1 - alpha.z);
+        index_off(dsdf_vals, 1, 0, 1, 0) = alpha.x * alpha.z * (1 - alpha.y);
+        index_off(dsdf_vals, 1, 1, 0, 0) = alpha.x * alpha.y * (1 - alpha.z);
+        index_off(dsdf_vals, 1, 1, 1, 0) = alpha.x * alpha.y * alpha.z;
+    }
+}
+
+template <typename T>
+__device__ void dTrilinear_dNormals(cuda_array < int3, 3>* sdf_pos,          // 4x4x4
+                                    cuda_array < float3, 3>* dsdf_vals,      // 2x2x2
+                                    cuda_array < float3, 3>* dnormals_vals,  // 4x4x4 (x3)
+                                    float3 p0,
+                                    float3 p1,
+                                    int3 sdf_shape,
+
+                                    float3 alpha,
+                                    
+                                    float3 position,
+                                    bool clamp_coords = false
+                                   ) {
+    int3 lp = index_off(sdf_pos, 0, 0, 0, 1);
+    int3 up = index_off(sdf_pos, 1, 1, 1, 1);
+    
+    if (!clamp_coords && (grid_space.x < 0.0f || grid_space.x > sdf_shape_f.x
+                          || grid_space.y < 0.0f || grid_space.y > sdf_shape_f.y
+                          || grid_space.z < 0.0f || grid_space.z > sdf_shape_f.z)) {
+        // no contribution to derivative
+        for (int i = 0; i < 4; i++) {
+            for (int j = 0; j < 4; j++) {
+                for (int k = 0; k < 4; k++) {
+                    index_off(dnormals_vals, i, j, k, 0) = 0.0f;
+                }
+            }
+        }
+    } else {
+        
+    }
 }
 
 __device__ float h(cuda_array<float, 3>* sdf,
@@ -297,6 +367,10 @@ typedef struct {
     float3 normals[ITERATIONS + 1];
     float3 intensity[ITERATIONS + 1];
     float3 volumetric_shaded[ITERATIONS + 1];
+    
+    float3 ray_pos;
+    float3 ray_vec;
+    float3 origin;
 } chk;
 
 __device__ void create_chk(chk& c) {
@@ -370,16 +444,17 @@ __device__ float3 forward_pass(int x,
                                int height,
                                chk& ch
                               ) {
-    float3 ray_pos = make_float3(0.0f, 0.0f, 0.0f);
-    float3 ray_vec = make_float3(0.0f, 0.0f, 0.0f);
-    float3 origin = make_float3(0.0f, 0.0f, 0.0f);
+    ch.ray_pos = make_float3(0.0f, 0.0f, 0.0f);
+    ch.ray_vec = make_float3(0.0f, 0.0f, 0.0f);
+    ch.origin = make_float3(0.0f, 0.0f, 0.0f);
     
     const float u_s = 1.0f;
     const float k = -1.0f;
     
-    projection_gen(x, y, projection, view, width, height, ray_pos, ray_vec, origin);
-    
-    float3 transformed_ray_pos = apply_affine<float>(ray_transform, ray_pos);
+    projection_gen(x, y, projection, view, width, height, ch.ray_pos, ch.ray_vec,
+                   ch.origin);
+                   
+    float3 transformed_ray_pos = apply_affine<float>(ray_transform, ch.ray_pos);
     ch.pos[0] = transformed_ray_pos;
 #pragma unroll
     for (int tr = 0; tr < ITERATIONS; tr++) {
@@ -393,7 +468,7 @@ __device__ float3 forward_pass(int x,
         // uncomment for sphere tracing
         //float step = ch.dist[tr];
         
-        ch.pos[tr + 1] = ch.pos[tr] + step * ray_vec;
+        ch.pos[tr + 1] = ch.pos[tr] + step * ch.ray_vec;
         
         // also on iteration tr
         float g_d = normal_pdf_rectified(ch.dist[tr]);
@@ -403,7 +478,7 @@ __device__ float3 forward_pass(int x,
                                            ch.pos[tr],
                                            make_float3(0.0f, 0.0f, 0.0f));
                                            
-        ch.intensity[tr] = shade(ch.pos[tr], origin, ch.normals[tr]);
+        ch.intensity[tr] = shade(ch.pos[tr], ch.origin, ch.normals[tr]);
         
         ch.opc[tr + 1] = ch.opc[tr] + g_d * step;
         
@@ -417,6 +492,31 @@ __device__ float3 forward_pass(int x,
     //return ch.intensity[ITERATIONS / 2];
     return ch.volumetric_shaded[ITERATIONS];
     //return index(normals, x / (1000 / 64), y / (1000 / 64), 30);
+}
+
+__device__
+void backwards_pass(
+    int x,
+    int y,
+    cuda_array<float, 3>* sdf,
+    float3 p0,
+    float3 p1,
+    uint3 sdf_shape,
+    cuda_array<float3, 3>* normals,
+    
+    
+    cuda_array<float, 2>* projection,
+    cuda_array<float, 2>* view,
+    cuda_array<float, 2>* ray_transform,
+    
+    cuda_array<float, 3>* dLossdSDF,
+    cuda_array<float, 2>* dLossdTransform,
+    
+    int width,
+    int height,
+    chk& ch
+) {
+
 }
 
 __global__
@@ -490,6 +590,16 @@ void render(float* projection_matrix_,
                      forward_,
                      image_size);
                      
+    cuda_array<float, 3> dLossdSDF;
+    assign<float, 3>(&dLossdSDF,
+                     dLossdSDF_,
+                     sdf_shape);
+                     
+    cuda_array<float, 2> dLossdTransform;
+    assign<float, 2>(&dLossdTransform,
+                     dLossdTransform_,
+                     mat4_size);
+                     
     float3 p0_p = make_float3(index(&p0, 0), index(&p0, 1), index(&p0, 2));
     float3 p1_p = make_float3(index(&p1, 0), index(&p1, 1), index(&p1, 2));
     uint3 sdf_shape_p = make_uint3(sdf_shape[0],
@@ -505,6 +615,13 @@ void render(float* projection_matrix_,
                             &projection, &view, &transform,
                             width, height, ch);
                             
+    backwards_pass(i, j,
+                   &sdf, p0_p, p1_p, sdf_shape_p,
+                   &normals,
+                   &projection, &view, &transform,
+                   &dLossdSDF, &dLossdTransform,
+                   width, height, ch);
+                   
     index(&forward, 0, i, j) = c.x;
     index(&forward, 1, i, j) = c.y;
     index(&forward, 2, i, j) = c.z;
@@ -601,6 +718,7 @@ void trace() {
     float* forward_device = to_device<float, 3>(forward_host, &img_dims_device);
     
     cuda_array<float, 3>* dloss_dsdf_host = create<float, 3>(n_matrix);
+    fill(dloss_dsdf_host, 0.0f);
     float* dloss_dsdf_device = to_device<float, 3>(dloss_dsdf_host,
                                &n_matrix_device);
                                
