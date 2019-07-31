@@ -5,6 +5,10 @@ from sympy import *
 init_printing()
 
 
+def clamp(a, b, c):
+    return Min(Max(a, b), c)
+
+
 def lerp(a, b, alpha):
     return (1 - alpha) * a + alpha * b
 
@@ -194,7 +198,7 @@ def trilinear_sobel_derivatives():
     #            for tsb_name in tsb.keys()}
     # mappings.update({neighbor_name: matrix_elem_to_mapping(neighbor_name, "SDF")
     #                 for neighbor_name in neighbors.keys()})
-    #print(jacobian_to_code(neighbors, tsb, mappings))
+    # print(jacobian_to_code(neighbors, tsb, mappings))
 
 
 def opc_test():
@@ -219,17 +223,78 @@ def vs_test():
     pprint(diff(vs_t1, SDF))
 
 
-if __name__ == '__main__':
-    trilinear_derivatives()
-    #neighbors = gen_neighbors()
-    #jacobian(neighbors, sobel(neighbors))
+def light_source(light_color,
+                 position,
+                 light_position,
+                 normal,
+                 kd=symbols("kd"),
+                 ks=symbols("ks"),
+                 ka=symbols("ka")):
+    light_vec = (Matrix(light_position) - Matrix(position)).normalized()
+    ray_position = position + light_vec
+    diffuse = kd * clamp(Matrix(normal).dot(Matrix(light_vec)),
+                         0.0, 1.0) * Matrix(light_color)
+    return Matrix(diffuse)
 
-    # trilinear_sobel_derivatives()
+
+def shade(position, origin, normal):
+    top_light_color = MatrixSymbol("toplightcolor", 3, 1)
+    self_light_color = MatrixSymbol("selflightcolor", 3, 1)
+
+    top_light_pos = MatrixSymbol("toplightpos", 3, 1)
+    self_light_pos = MatrixSymbol("selflightpos", 3, 1)
+
+    top_light = light_source(top_light_color, position, top_light_pos, normal)
+    self_light = light_source(
+        self_light_color, position, self_light_pos, normal)
+
+    total_light = top_light + self_light
+
+    return total_light
+
+
+def intensity_derivative(position, origin, normal, SDF):
+    return diff(simplify(shade(position, origin, normal)), SDF)
+
+
+def whole_pipeline_test():
+    '''SDF = symbols("SDF")
+    vs_t = Function("vs_t")(SDF)
+
+    scattering_t = Function("scattering_t")(SDF)
+    opc_t1 = Function("opc_t1")(SDF)
+    intensity = Function("intensity")(SDF)
+    k, step = symbols("k step")
+
+    vs_t1 = vs_t + scattering_t * exp(k * opc_t1) * intensity * step
+    pprint(diff(vs_t1, SDF))'''
+
+    SDF = symbols("SDF")
+    # position_placeholder = FunctionMatrix(
+    #    3, 1, lambda i, j: Function("position_{}{}".format(i, j), real=True)(SDF))
+    position_placeholder = FunctionMatrix(
+        3, 1, lambda i, j: Function("position_{}{}".format(i, j), real=True)())
+    origin = symbols("origin")
+    normal_placeholder = FunctionMatrix(
+        3, 1, lambda i, j: Function("normal_{}{}".format(i, j), real=True)(SDF))
+
+    print(intensity_derivative(position_placeholder,
+                               origin, normal_placeholder, SDF))
+
+
+if __name__ == '__main__':
+    # trilinear_derivatives()
+    # neighbors = gen_neighbors()
+    # jacobian(neighbors, sobel(neighbors))
+
+    trilinear_sobel_derivatives()
     # vs_test()
     # opc_test()
 
-    #cs = "cs!0!2!0"
-    #print(matrix_elem_to_mapping(cs, "cs"))
+    # cs = "cs!0!2!0"
+    # print(matrix_elem_to_mapping(cs, "cs"))
 
-    #cs = "cs_1"
-    #print(vec_elem_to_mapping(cs, "cs"))
+    # cs = "cs_1"
+    # print(vec_elem_to_mapping(cs, "cs"))
+
+    # whole_pipeline_test()
