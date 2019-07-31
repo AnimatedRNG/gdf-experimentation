@@ -320,7 +320,48 @@ void backwards_pass(
     int height,
     chk& ch
 ) {
+    cuda_array<int3, 3> sdf_pos;
+    int3 sdf_pos_data[4][4][4];
+    size_t sdf_pos_dims[3] = {2, 2, 2};
+    assign(&sdf_pos, (int3*) sdf_pos_data, sdf_pos_dims);
+    
+    // reset each iteration
+    // represents the derivative of trilinear w.r.t the SDF
+    cuda_array<float, 3> dsdf;
+    float dsdf_data[2][2][2];
+    size_t dsdf_data_dims[3] = {2, 2, 2};
+    assign(&dsdf, (float*) dsdf_data, dsdf_data_dims);
+    
+    // reset each iteration
+    // represents the derivative of the trilinear of normals w.r.t the SDF
+    cuda_array<float3, 3> dnormals;
+    float3 dnormals_data[4][4][4];
+    size_t dnormals_dims[3] = {4, 4, 4};
+    assign(&dnormals, (float3*) dnormals_data, dnormals_dims);
+    
+#pragma unroll
+    for (int tr = ITERATIONS; tr >= 0; tr--) {
+        float3 pos = ch.pos[tr - 1];
+        
+        float3 grid_space;
+        float3 alpha = populate_trilinear_pos(&sdf_pos, p0, p1, make_int3(sdf_shape),
+                                              pos, grid_space);
 
+        dTrilinear_dSDF(&sdf_pos, &dsdf,
+                        p0, p1, make_int3(sdf_shape),
+
+                        alpha, grid_space,
+
+                        pos, false);
+
+        /*dTrilinear_dNormals(&sdf_pos, sdf,
+                            &dnormals,
+                            p0, p1, make_int3(sdf_shape),
+
+                            alpha, grid_space,
+
+                            pos, false);*/
+    }
 }
 
 __global__
@@ -547,7 +588,7 @@ void trace() {
             
     //cudaThreadSynchronize();
     
-    const size_t block_size = 16;
+    const size_t block_size = 8;
     const size_t grid_size_x = (int)(ceil((float) width / (float) block_size));
     const size_t grid_size_y = (int)(ceil((float) height / (float) block_size));
     

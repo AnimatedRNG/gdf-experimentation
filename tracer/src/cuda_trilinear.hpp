@@ -71,7 +71,6 @@ __device__ T trilinear(cuda_array < T, 3>* f,
 }
 
 // returns alpha
-template <typename T>
 __device__ float3 populate_trilinear_pos(
     cuda_array < int3, 3>* sdf_pos, // 4x4x4
     float3 p0,
@@ -104,39 +103,38 @@ __device__ float3 populate_trilinear_pos(
     // sdf_pos starts at (-1, -1, -1)
 
     // region 0 - 1
-    index_off(sdf_pos, 0, 0, 0, 1) = int3(lp.x, lp.y, lp.z);
-    index_off(sdf_pos, 0, 0, 1, 1) = int3(lp.x, lp.y, up.z);
-    index_off(sdf_pos, 0, 1, 0, 1) = int3(lp.x, up.y, lp.z);
-    index_off(sdf_pos, 0, 1, 1, 1) = int3(lp.x, up.y, up.z);
-    index_off(sdf_pos, 1, 0, 0, 1) = int3(up.x, lp.y, lp.z);
-    index_off(sdf_pos, 1, 0, 1, 1) = int3(up.x, lp.y, up.z);
-    index_off(sdf_pos, 1, 1, 0, 1) = int3(up.x, up.y, lp.z);
-    index_off(sdf_pos, 1, 1, 1, 1) = int3(up.x, up.y, up.z);
+    index_off(sdf_pos, 0, 0, 0, 1) = make_int3(lp.x, lp.y, lp.z);
+    index_off(sdf_pos, 0, 0, 1, 1) = make_int3(lp.x, lp.y, up.z);
+    index_off(sdf_pos, 0, 1, 0, 1) = make_int3(lp.x, up.y, lp.z);
+    index_off(sdf_pos, 0, 1, 1, 1) = make_int3(lp.x, up.y, up.z);
+    index_off(sdf_pos, 1, 0, 0, 1) = make_int3(up.x, lp.y, lp.z);
+    index_off(sdf_pos, 1, 0, 1, 1) = make_int3(up.x, lp.y, up.z);
+    index_off(sdf_pos, 1, 1, 0, 1) = make_int3(up.x, up.y, lp.z);
+    index_off(sdf_pos, 1, 1, 1, 1) = make_int3(up.x, up.y, up.z);
 
     // region -1 - 0
-    index_off(sdf_pos, 0, 0, 0, 0) = int3(lp.x - 1, lp.y - 1, lp.z - 1);
-    index_off(sdf_pos, 0, 0, 1, 0) = int3(lp.x - 1, lp.y - 1, up.z - 1);
-    index_off(sdf_pos, 0, 1, 0, 0) = int3(lp.x - 1, up.y - 1, lp.z - 1);
-    index_off(sdf_pos, 0, 1, 1, 0) = int3(lp.x - 1, up.y - 1, up.z - 1);
-    index_off(sdf_pos, 1, 0, 0, 0) = int3(up.x - 1, lp.y - 1, lp.z - 1);
-    index_off(sdf_pos, 1, 0, 1, 0) = int3(up.x - 1, lp.y - 1, up.z - 1);
-    index_off(sdf_pos, 1, 1, 0, 0) = int3(up.x - 1, up.y - 1, lp.z - 1);
-    index_off(sdf_pos, 1, 1, 1, 0) = int3(up.x - 1, up.y - 1, up.z - 1);
+    index_off(sdf_pos, 0, 0, 0, 0) = make_int3(lp.x - 1, lp.y - 1, lp.z - 1);
+    index_off(sdf_pos, 0, 0, 1, 0) = make_int3(lp.x - 1, lp.y - 1, up.z - 1);
+    index_off(sdf_pos, 0, 1, 0, 0) = make_int3(lp.x - 1, up.y - 1, lp.z - 1);
+    index_off(sdf_pos, 0, 1, 1, 0) = make_int3(lp.x - 1, up.y - 1, up.z - 1);
+    index_off(sdf_pos, 1, 0, 0, 0) = make_int3(up.x - 1, lp.y - 1, lp.z - 1);
+    index_off(sdf_pos, 1, 0, 1, 0) = make_int3(up.x - 1, lp.y - 1, up.z - 1);
+    index_off(sdf_pos, 1, 1, 0, 0) = make_int3(up.x - 1, up.y - 1, lp.z - 1);
+    index_off(sdf_pos, 1, 1, 1, 0) = make_int3(up.x - 1, up.y - 1, up.z - 1);
 
     // region 1 - 2
-    index_off(sdf_pos, 0, 0, 0, 2) = int3(lp.x + 1, lp.y + 1, lp.z + 1);
-    index_off(sdf_pos, 0, 0, 1, 2) = int3(lp.x + 1, lp.y + 1, up.z + 1);
-    index_off(sdf_pos, 0, 1, 0, 2) = int3(lp.x + 1, up.y + 1, lp.z + 1);
-    index_off(sdf_pos, 0, 1, 1, 2) = int3(lp.x + 1, up.y + 1, up.z + 1);
-    index_off(sdf_pos, 1, 0, 0, 2) = int3(up.x + 1, lp.y + 1, lp.z + 1);
-    index_off(sdf_pos, 1, 0, 1, 2) = int3(up.x + 1, lp.y + 1, up.z + 1);
-    index_off(sdf_pos, 1, 1, 0, 2) = int3(up.x + 1, up.y + 1, lp.z + 1);
-    index_off(sdf_pos, 1, 1, 1, 2) = int3(up.x + 1, up.y + 1, up.z + 1);
+    index_off(sdf_pos, 0, 0, 0, 2) = make_int3(lp.x + 1, lp.y + 1, lp.z + 1);
+    index_off(sdf_pos, 0, 0, 1, 2) = make_int3(lp.x + 1, lp.y + 1, up.z + 1);
+    index_off(sdf_pos, 0, 1, 0, 2) = make_int3(lp.x + 1, up.y + 1, lp.z + 1);
+    index_off(sdf_pos, 0, 1, 1, 2) = make_int3(lp.x + 1, up.y + 1, up.z + 1);
+    index_off(sdf_pos, 1, 0, 0, 2) = make_int3(up.x + 1, lp.y + 1, lp.z + 1);
+    index_off(sdf_pos, 1, 0, 1, 2) = make_int3(up.x + 1, lp.y + 1, up.z + 1);
+    index_off(sdf_pos, 1, 1, 0, 2) = make_int3(up.x + 1, up.y + 1, lp.z + 1);
+    index_off(sdf_pos, 1, 1, 1, 2) = make_int3(up.x + 1, up.y + 1, up.z + 1);
 
     return alpha;
 }
 
-template <typename T>
 __device__ void dTrilinear_dSDF(cuda_array < int3, 3>* sdf_pos,   // 4x4x4
                                 cuda_array < float, 3>* dsdf_vals, // 2x2x2
                                 float3 p0,
@@ -179,11 +177,9 @@ __device__ void dTrilinear_dSDF(cuda_array < int3, 3>* sdf_pos,   // 4x4x4
     }
 }
 
-template <typename T>
 __device__ void dTrilinear_dNormals(cuda_array < int3, 3>*
                                     sdf_pos,          // 4x4x4
                                     cuda_array < float, 3>* sdf_vals,        // NxNxN
-                                    cuda_array < float3, 3>* dsdf_vals,      // 2x2x2
                                     cuda_array < float3, 3>* dnormals_vals,  // 4x4x4 (x3)
                                     float3 p0,
                                     float3 p1,
