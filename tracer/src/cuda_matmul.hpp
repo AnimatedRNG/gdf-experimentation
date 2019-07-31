@@ -1,6 +1,7 @@
 #pragma once
 
 #include "math.h"
+#include "helper_math.h"
 
 template <typename T, size_t N>
 struct cuda_array {
