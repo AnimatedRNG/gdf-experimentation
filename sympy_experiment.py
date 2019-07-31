@@ -177,7 +177,8 @@ def jacobian_to_code(inputs, outputs, mappings):
             deriv = str(diff(output, inp))
             for name, replacement in mappings.items():
                 deriv = deriv.replace(str(name), replacement)
-            code += "    {} = {};\n".format(input_mapped, deriv)
+            code += "    {}{} = {};\n".format(input_mapped,
+                                              output_mapped, deriv)
     print(code)
 
 
@@ -199,19 +200,18 @@ def trilinear_sobel_derivatives():
     tsb = trilinear_sobel(alphas, neighbors)
     #jacobian(neighbors, tsb, True)
 
-    mappings = {tsb_name: vec_elem_to_mapping(tsb_name, "dNormal_dSDF")
+    '''mappings = {tsb_name: vec_elem_to_mapping(tsb_name, "")
                 for tsb_name in tsb.keys()}
     mappings.update({"alpha" + str(index): "alpha.{}".format(index_to_xyzw[index])
                      for index, value in enumerate(alphas)})
     mappings.update({neighbor_name: matrix_elem_to_mapping(neighbor_name, "normals_vals", "delete_me")
                      for neighbor_name in neighbors.keys()})
     sdf_names = {"SDF!{}!{}!{}".format(i, j, k): "index(sdf_vals, offset.x + {}, offset.y + {}, offset.z + {})"
+                 .format(i, j, k)
                  for i in range(-1, 3) for j in range(-1, 3) for k in range(-1, 3)}
     mappings.update(sdf_names)
-    # print(sdf_names)
 
-    # print(mappings)
-    print(jacobian_to_code(neighbors, tsb, mappings))
+    print(jacobian_to_code(neighbors, tsb, mappings))'''
 
 
 def opc_test():
