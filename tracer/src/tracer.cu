@@ -10,7 +10,7 @@
 
 #include "cuda_matmul.hpp"
 
-#define ITERATIONS 500
+#define ITERATIONS 900
 
 __device__ void projection_gen(int x,
                                int y,
@@ -327,9 +327,12 @@ __device__ float3 forward_pass(int x,
                                        1.0f);
         // on iteration tr, because the pos was from iteration tr
         float ds = to_render_dist(ch.dist[tr]);
-        
-        float step = ds;
+
+        float step = 1.0f / 100.0f;
+        //float step = ds;
+        // uncomment for sphere tracing
         //float step = ch.dist[tr];
+        
         ch.pos[tr + 1] = ch.pos[tr] + step * ray_vec;
         
         // also on iteration tr
