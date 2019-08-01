@@ -82,10 +82,11 @@ find_package(CUDA REQUIRED)
 
 set(
     CUDA_NVCC_FLAGS
-    ${CUDA_NVCC_FLAGS} -G -g -expt-extended-lambda
+    ${CUDA_NVCC_FLAGS} -O3 -g -expt-extended-lambda
 )
 
 cuda_add_executable(tracer_cuda src/tracer.cu)
+target_include_directories(tracer_cuda PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}")
 set_target_properties(tracer_cuda PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_property(TARGET tracer_cuda PROPERTY CUDA_STANDARD 11)
 

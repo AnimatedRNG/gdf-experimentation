@@ -7,7 +7,6 @@
 #include "HalideRuntime.h"
 
 using namespace Halide::Runtime;
-using namespace Halide::Tools;
 
 inline Buffer<float> read_sdf(const std::string& filename,
                               float& p0_x, float& p0_y, float& p0_z,

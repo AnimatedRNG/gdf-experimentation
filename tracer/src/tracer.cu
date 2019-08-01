@@ -8,6 +8,8 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
+#include "read_sdf.hpp"
+
 #include "cuda_matmul.hpp"
 #include "cuda_trilinear.hpp"
 
@@ -166,7 +168,6 @@ void sobel(
     uint k = blockIdx.z * blockDim.z + threadIdx.z;
     
     if (i >= sdf_shape[0] || j >= sdf_shape[1] || k >= sdf_shape[2]) {
-        assert(false);
         return;
     }
     
@@ -457,7 +458,7 @@ void backwards_pass(
                     int3 sdf_location = make_int3(clamp(lp.x + i, 0, int(sdf_shape.x) - 1),
                                                   clamp(lp.y + j, 0, int(sdf_shape.y) - 1),
                                                   clamp(lp.z + k, 0, int(sdf_shape.z) - 1));
-                    
+                                                  
                     // dTrilinear/dSDF(i, j, k) represents the derivative of the
                     // trilinear interpolation of the SDF at the location ijk
                     // (starts at (-1, -1, -1))
@@ -705,11 +706,11 @@ void trace() {
         {0.0f, 0.0f, 0.0f, 1.0}
     };
     
-    const float p0_matrix[3] = {
+    float p0_matrix[3] = {
         -4.0f, -4.0f, -4.0f
         };
         
-    const float p1_matrix[3] = {
+    float p1_matrix[3] = {
         4.0f, 4.0f, 4.0f
     };
     
@@ -741,14 +742,25 @@ void trace() {
     float* transform_device = to_device<float, 2>(transform_host,
                               &mat4_dims_device);
                               
-    cuda_array<float, 3>* sdf_host = create<float, 3>(n_matrix);
+    /*cuda_array<float, 3>* sdf_host = create<float, 3>(n_matrix);
     gen_sdf<float>(example_sphere,
                    p0_matrix[0], p0_matrix[1], p0_matrix[2],
                    p1_matrix[0], p1_matrix[1], p1_matrix[2],
-                   sdf_host);
+                   sdf_host);*/
+    int n_matrix_i[3];
+    Buffer<float> sdf_buf(read_sdf("bunny.sdf",
+                                   p0_matrix[0], p0_matrix[1], p0_matrix[2],
+                                   p1_matrix[0], p1_matrix[1], p1_matrix[2],
+                                   n_matrix_i[0], n_matrix_i[1], n_matrix_i[2],
+                                   true, true, 8.0f));
+    cuda_array<float, 3>* sdf_host = from_buffer<float, 3>(sdf_buf);
+    size_t n_matrix_st[3];
+    for (int i = 0; i < 3; i++) {
+        n_matrix_st[i] = n_matrix_i[i];
+    }
     float* sdf_device = to_device<float, 3>(sdf_host, &n_matrix_device);
     
-    cuda_array<float3, 3>* normals_host = create<float3, 3>(n_matrix);
+    cuda_array<float3, 3>* normals_host = create<float3, 3>(n_matrix_st);
     float3* normals_device = to_device<float3, 3>(normals_host,
                              &n_matrix_device);
                              
@@ -769,7 +781,7 @@ void trace() {
     cuda_array<float, 3>* forward_host = create<float, 3>(img_dims);
     float* forward_device = to_device<float, 3>(forward_host, &img_dims_device);
     
-    cuda_array<float, 3>* dloss_dsdf_host = create<float, 3>(n_matrix);
+    cuda_array<float, 3>* dloss_dsdf_host = create<float, 3>(n_matrix_st);
     fill(dloss_dsdf_host, 0.0f);
     float* dloss_dsdf_device = to_device<float, 3>(dloss_dsdf_host,
                                &n_matrix_device);
@@ -779,11 +791,11 @@ void trace() {
                                      &mat4_dims_device);
                                      
     const size_t sobel_block_size = 4;
-    const size_t sobel_grid_size_x = (int)(ceil((float) n_matrix[0] /
+    const size_t sobel_grid_size_x = (int)(ceil((float) n_matrix_st[0] /
                                            (float) sobel_block_size));
-    const size_t sobel_grid_size_y = (int)(ceil((float) n_matrix[1] /
+    const size_t sobel_grid_size_y = (int)(ceil((float) n_matrix_st[1] /
                                            (float) sobel_block_size));
-    const size_t sobel_grid_size_z = (int)(ceil((float) n_matrix[2] /
+    const size_t sobel_grid_size_z = (int)(ceil((float) n_matrix_st[2] /
                                            (float) sobel_block_size));
                                            
     dim3 sobel_blocks(sobel_grid_size_x, sobel_grid_size_y, sobel_grid_size_z);
@@ -838,10 +850,19 @@ void trace() {
     to_host<float, 3>(forward_device, forward_host);
     to_host<float, 3>(dloss_dsdf_device, dloss_dsdf_host);
     
-    for (int i = 0; i < 64; i++) {
-        for (int j = 0; j < 64; j++) {
-            for (int k = 0; k < 64; k++) {
+    for (int i = 0; i < n_matrix_st[0]; i++) {
+        for (int j = 0; j < n_matrix_st[0]; j++) {
+            for (int k = 0; k < n_matrix_st[0]; k++) {
                 printf("%0.2f\t", index(dloss_dsdf_host, i, j, k));
+            }
+            std::cout << std::endl;
+        }
+        std::cout << std::endl;
+        std::cout << "SDF: " << std::endl;
+
+        for (int j = 0; j < n_matrix_st[0]; j++) {
+            for (int k = 0; k < n_matrix_st[0]; k++) {
+                printf("%0.2f\t", index(sdf_host, i, j, k));
             }
             std::cout << std::endl;
         }

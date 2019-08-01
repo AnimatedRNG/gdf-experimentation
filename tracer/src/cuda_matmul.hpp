@@ -1,7 +1,10 @@
 #pragma once
 
+#include "HalideBuffer.h"
 #include "math.h"
 #include "helper_math.h"
+
+using namespace Halide::Runtime;
 
 //#define BOUNDS_CHECKING
 
@@ -66,6 +69,25 @@ __host__ __device__ void reinterpret(cuda_array<T, N>* arr,
     assert(product_t == product_u);
 
     assign(new_arr, (U*)(arr->data), dims, false);
+}
+
+template <typename T, size_t N>
+__host__ inline cuda_array<T, N>* from_buffer(Halide::Runtime::Buffer<T>& buf) {
+    cuda_array<T, N>* output = new cuda_array<T, N>;
+    int product = 1;
+
+    assert(buf.dimensions() == N);
+
+    for (int i = 0; i < buf.dimensions(); i++) {
+        output->shape[i] = buf.dim(i).extent();
+        output->stride[i] = buf.dim(i).stride();
+        product *= buf.dim(i).extent();
+    }
+
+    output->num_elements = product;
+    output->data = buf.data();
+
+    return output;
 }
 
 template <typename T, size_t N>
