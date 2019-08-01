@@ -320,6 +320,10 @@ void backwards_pass(
     int height,
     chk& ch
 ) {
+    // reset each iteration
+    // represents the neighborhood of the ray evaluation location from
+    // [-1, -1, -1] to [2, 2, 2] inclusive (where the ray evaluation location)
+    // is (0, 0, 0)
     cuda_array<int3, 3> sdf_pos;
     int3 sdf_pos_data[4][4][4];
     size_t sdf_pos_dims[3] = {2, 2, 2};
@@ -354,13 +358,43 @@ void backwards_pass(
 
                         pos, false);
 
-        /*dTrilinear_dNormals(&sdf_pos, sdf,
+        dTrilinear_dNormals(&sdf_pos, sdf,
                             &dnormals,
                             p0, p1, make_int3(sdf_shape),
 
                             alpha, grid_space,
 
-                            pos, false);*/
+                            pos, false);
+
+        // the ijk coordinate system is centered at the ray evaluation position - 1
+        for (int i = -1; i < 3; i++) {
+            for (int j = -1; j < 3; j++) {
+                for (int k = -1; k < 3; k++) {
+                    // sdf_pos starts at (-1, -1, -1)
+                    // sdf_location gives us the location of the ray evaluation
+                    // in grid space
+                    int3 sdf_location = index_off(&sdf_pos, i, j, k, 1);
+
+                    // dTrilinear/dSDF(i, j, k) represents the derivative of the
+                    // trilinear interpolation of the SDF at the location ijk
+                    // (starts at (-1, -1, -1))
+                    float dtrilinear_sdf_ijk = 0.0f;
+                    
+                    // if we actually have a valid trilinear interpolation of dsdf
+                    if (i < 1 && j < 1 && k < 1) {
+                        // note that dsdf starts at (0, 0, 0), but ijk starts
+                        // at (-1, -1, -1) -- that's why there is an offset
+                        dtrilinear_sdf_ijk = index_off(&dsdf, i, j, k, 1);
+                    }
+
+                    // dNormalsTrilinear/dSDF(i, j, k) represents
+                    // Trilinear(Normals(i, j, k)). It's the trilinear interpolated
+                    // normal of the SDF at location ijk (starts at -1, -1, -1)
+                    float3 dnormalstrilinear_sdf_ijk = index_off(&dnormals, i, j, k, 1);
+                }
+            }
+        }
+        
     }
 }
 
@@ -467,9 +501,12 @@ void render(float* projection_matrix_,
                    &dLossdSDF, &dLossdTransform,
                    width, height, ch);
                    
-    index(&forward, 0, i, j) = c.x;
-    index(&forward, 1, i, j) = c.y;
-    index(&forward, 2, i, j) = c.z;
+    //index(&forward, 0, i, j) = c.x;
+    //index(&forward, 1, i, j) = c.y;
+    //index(&forward, 2, i, j) = c.z;
+    //index(&dLossdSDF, 0, i % 64, j % 64) = c.x;
+    //index(&dLossdSDF, 1, i % 64, j % 64) = c.x;
+    //index(&dLossdSDF, 2, i % 64, j % 64) = c.x;
 }
 
 void trace() {
