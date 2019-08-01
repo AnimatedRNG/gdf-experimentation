@@ -391,6 +391,11 @@ void backwards_pass(
                     // Trilinear(Normals(i, j, k)). It's the trilinear interpolated
                     // normal of the SDF at location ijk (starts at -1, -1, -1)
                     float3 dnormalstrilinear_sdf_ijk = index_off(&dnormals, i, j, k, 1);
+
+                    
+
+                    atomicAdd(&index(dLossdSDF, sdf_location.x, sdf_location.y, sdf_location.z),
+                              1.0f);
                 }
             }
         }
@@ -501,12 +506,12 @@ void render(float* projection_matrix_,
                    &dLossdSDF, &dLossdTransform,
                    width, height, ch);
                    
-    //index(&forward, 0, i, j) = c.x;
-    //index(&forward, 1, i, j) = c.y;
-    //index(&forward, 2, i, j) = c.z;
-    //index(&dLossdSDF, 0, i % 64, j % 64) = c.x;
-    //index(&dLossdSDF, 1, i % 64, j % 64) = c.x;
-    //index(&dLossdSDF, 2, i % 64, j % 64) = c.x;
+    //index(&forward, 0, i, j) = index(&dLossdSDF, clamp(i / 64, 0, 64), i % 64, j % 64) / 10000.0f;
+    //index(&forward, 1, i, j) = index(&dLossdSDF, clamp(i / 64, 0, 64), i % 64, j % 64) / 10000.0f;
+    //index(&forward, 2, i, j) = index(&dLossdSDF, clamp(i / 64, 0, 64), i % 64, j % 64) / 10000.0f;
+    index(&forward, 0, i, j) = c.x;
+    index(&forward, 1, i, j) = c.y;
+    index(&forward, 2, i, j) = c.z;
 }
 
 void trace() {
