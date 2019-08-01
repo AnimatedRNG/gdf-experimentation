@@ -145,7 +145,7 @@ float example_sphere(float x, float y, float z) {
 }
 
 template <typename T>
-__host__ void fill(cuda_array<T, 2>* arr, const T& val) {
+__device__ __host__ void fill(cuda_array<T, 2>* arr, const T& val) {
     for (int j = 0; j < arr->shape[1]; j++) {
         for (int i = 0; i < arr->shape[0]; i++) {
             index(arr, i, j) = val;
@@ -154,7 +154,7 @@ __host__ void fill(cuda_array<T, 2>* arr, const T& val) {
 }
 
 template <typename T>
-__host__ void fill(cuda_array<T, 3>* arr, const T& val) {
+__device__ __host__ void fill(cuda_array<T, 3>* arr, const T& val) {
     for (int k = 0; k < arr->shape[2]; k++) {
         for (int j = 0; j < arr->shape[1]; j++) {
             for (int i = 0; i < arr->shape[0]; i++) {

@@ -322,12 +322,12 @@ __device__ float3 forward_pass(int x,
                    
     float3 transformed_ray_pos = apply_affine<float>(ray_transform, ch.ray_pos);
     ch.pos[0] = transformed_ray_pos;
-#pragma unroll
+    //#pragma unroll
     for (int tr = 0; tr < ITERATIONS; tr++) {
         ch.dist[tr] = trilinear<float>(sdf, p0, p1, make_int3(sdf_shape), ch.pos[tr],
                                        1.0f);
         // on iteration tr, because the pos was from iteration tr
-        float ds = to_render_dist(ch.dist[tr]);
+        //float ds = to_render_dist(ch.dist[tr]);
         
         float step = ch.step;
         //float step = 1.0f / 100.0f;
@@ -384,15 +384,6 @@ void backwards_pass(
     chk& ch
 ) {
     // reset each iteration
-    // represents the neighborhood of the ray evaluation location from
-    // [-1, -1, -1] to [2, 2, 2] inclusive (where the ray evaluation location)
-    // is (0, 0, 0)
-    cuda_array<int3, 3> sdf_pos;
-    int3 sdf_pos_data[4][4][4];
-    size_t sdf_pos_dims[3] = {4, 4, 4};
-    assign(&sdf_pos, (int3*) sdf_pos_data, sdf_pos_dims);
-    
-    // reset each iteration
     // represents the derivative of trilinear w.r.t the SDF
     cuda_array<float, 3> dsdf;
     float dsdf_data[2][2][2];
@@ -410,8 +401,8 @@ void backwards_pass(
     const float u_s = 1.0f;
     const float k = -1.0f;
     
-#pragma unroll
-    for (int tr = ITERATIONS; tr >= 0; tr--) {
+    //#pragma unroll
+    for (int tr = ITERATIONS; tr >= 1; tr--) {
         float3 pos = ch.pos[tr - 1];
         float dist = ch.dist[tr - 1];
         float g_d = ch.g_d[tr - 1];
@@ -420,18 +411,24 @@ void backwards_pass(
         float3 intensity = ch.intensity[tr - 1];
         float scattering = g_d * u_s;
         
+        int3 lp;
+        int3 up;
+        bool oob;
+        
         float3 grid_space;
-        float3 alpha = populate_trilinear_pos(&sdf_pos, p0, p1, make_int3(sdf_shape),
-                                              pos, grid_space);
+        float3 alpha = populate_trilinear_pos(p0, p1, make_int3(sdf_shape),
+                                              pos, grid_space, lp, up, oob);
                                               
-        dTrilinear_dSDF(&sdf_pos, &dsdf,
+        dTrilinear_dSDF(lp, up,
+                        &dsdf,
                         p0, p1, make_int3(sdf_shape),
                         
                         alpha, grid_space,
                         
                         pos, false);
                         
-        dTrilinear_dNormals(&sdf_pos, sdf,
+        dTrilinear_dNormals(lp, up,
+                            sdf,
                             &dnormals,
                             p0, p1, make_int3(sdf_shape),
                             
@@ -457,14 +454,9 @@ void backwards_pass(
                     // sdf_pos starts at (-1, -1, -1)
                     // sdf_location gives us the location of the ray evaluation
                     // in grid space
-                    int3 sdf_location = index_off(&sdf_pos, i, j, k, 1);
-                    
-                    /*assert(sdf_location.x >= 0);
-                    assert(sdf_location.x < sdf_shape.x);
-                    assert(sdf_location.y >= 0);
-                    assert(sdf_location.y < sdf_shape.y);
-                    assert(sdf_location.z >= 0);
-                    assert(sdf_location.z < sdf_shape.z);*/
+                    int3 sdf_location = make_int3(clamp(lp.x + i, 0, int(sdf_shape.x) - 1),
+                                                  clamp(lp.y + j, 0, int(sdf_shape.y) - 1),
+                                                  clamp(lp.z + k, 0, int(sdf_shape.z) - 1));
                     
                     // dTrilinear/dSDF(i, j, k) represents the derivative of the
                     // trilinear interpolation of the SDF at the location ijk
@@ -566,8 +558,10 @@ void backwards_pass(
                     float dLossdSDF_ijk = (2.0f / 3.0f) * norm_sq((target - vs_t1) * -1.0f *
                                           dvsdSDF);
                                           
-                    atomicAdd(&index(dLossdSDF, sdf_location.x, sdf_location.y, sdf_location.z),
-                              dLossdSDF_ijk);
+                    if (!oob) {
+                        atomicAdd(&index(dLossdSDF, sdf_location.x, sdf_location.y, sdf_location.z),
+                                  dLossdSDF_ijk);
+                    }
                 }
             }
         }
@@ -801,7 +795,7 @@ void trace() {
             
     //cudaThreadSynchronize();
     
-    const size_t block_size = 8;
+    const size_t block_size = 16;
     const size_t grid_size_x = (int)(ceil((float) width / (float) block_size));
     const size_t grid_size_y = (int)(ceil((float) height / (float) block_size));
     
@@ -847,11 +841,11 @@ void trace() {
     for (int i = 0; i < 64; i++) {
         for (int j = 0; j < 64; j++) {
             for (int k = 0; k < 64; k++) {
-                //printf("%0.2f\t", index(dloss_dsdf_host, i, j, k));
+                printf("%0.2f\t", index(dloss_dsdf_host, i, j, k));
             }
-            //std::cout << std::endl;
+            std::cout << std::endl;
         }
-        //std::cout << std::endl;
+        std::cout << std::endl;
     }
     
     write_img("forward_cuda.bmp", forward_host);
