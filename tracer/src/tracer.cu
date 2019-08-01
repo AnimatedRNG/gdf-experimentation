@@ -169,6 +169,7 @@ void sobel(
 typedef struct {
     float3 pos[ITERATIONS + 1];
     float dist[ITERATIONS + 1];
+    float3 normal[ITERATIONS + 1];
     float g_d[ITERATIONS + 1];
     float opc[ITERATIONS + 1];
     float3 intensity[ITERATIONS + 1];
@@ -178,6 +179,14 @@ typedef struct {
     float3 ray_vec;
     float3 origin;
 } chk;
+
+__device__ inline float step_f(float a) {
+    return (a < 0.0f) ? 0.0f : 1.0f;
+}
+
+__device__ inline float mesa(float a, float low = 0.0f, float high = 1.0f) {
+    return (a < low || a > high) ? 0.0f : 1.0f;
+}
 
 __device__ void create_chk(chk& c) {
     c.opc[0] = 0.0f;
@@ -192,16 +201,14 @@ __device__ float3 light_source(float3 light_color,
                                float ks = 0.3f,
                                float ka = 100.0f) {
     float3 light_vec = normalize(light_position - position);
-    float3 ray_position = position + light_vec;
     float3 diffuse = kd * clamp(dot(normal, light_vec), 0.0f, 1.0f) * light_color;
     return diffuse;
 }
 
-__device__ float3 shade(float3 position, float3 origin, float3 normal) {
-    float3 top_light_color = make_float3(0.6f, 0.6f, 0.0f);
-    float3 self_light_color = make_float3(0.4f, 0.0f, 0.4f);
-    
-    float3 top_light_pos = make_float3(10.0f, 30.0f, 0.0f);
+__device__ float3 shade(float3 position, float3 origin, float3 normal,
+                        float3 top_light_color = make_float3(0.6f, 0.6f, 0.0f),
+                        float3 self_light_color = make_float3(0.4f, 0.0f, 0.4f),
+                        float3 top_light_pos = make_float3(10.0f, 30.0f, 0.0f)) {
     float3 self_light_pos = origin;
     
     float3 top_light = light_source(top_light_color, position, top_light_pos,
@@ -214,6 +221,37 @@ __device__ float3 shade(float3 position, float3 origin, float3 normal) {
     return total_light;
 }
 
+__device__ float3 light_source_d(float3 light_color,
+                                 float3 position,
+                                 float3 light_position,
+                                 float3 normal,
+                                 float3 dNormaldSDF,
+                                 float kd = 0.7f,
+                                 float ks = 0.3f,
+                                 float ka = 100.0f) {
+    float3 light_vec = normalize(light_position - position);
+    return kd * mesa(dot(normal, light_vec), 0.0f, 1.0f) *
+        dot(dNormaldSDF, light_vec)
+        * light_color;
+}
+
+__device__ float3 shade_d(float3 position, float3 origin, float3 normal,
+                          float3 dNormaldSDF,
+                          float3 top_light_color = make_float3(0.6f, 0.6f, 0.0f),
+                          float3 self_light_color = make_float3(0.4f, 0.0f, 0.4f),
+                          float3 top_light_pos = make_float3(10.0f, 30.0f, 0.0f)) {
+    float3 self_light_pos = origin;
+    
+    float3 top_light_d = light_source_d(top_light_color, position, top_light_pos,
+                                        normal, dNormaldSDF);
+    float3 self_light_d = light_source_d(self_light_color, position, self_light_pos,
+                                         normal, dNormaldSDF);
+                                         
+    float3 total_light_d = top_light_d + self_light_d;
+    
+    return total_light_d;
+}
+
 __device__ inline float to_render_dist(float dist, float scale_factor = 1.0f) {
     return scale_factor / (10.0f + (1.0f - clamp(abs(dist), 0.0f, 1.0f)) * 90.0f);
 }
@@ -222,10 +260,6 @@ __device__ inline float normal_pdf(float x, float sigma = 1e-7f,
                                    float mean = 0.0f) {
     return (1.0f / sqrtf(2.0f * (float) M_PI * sigma * sigma)) *
            expf((x - mean) * (x - mean) / (-2.0f * sigma * sigma));
-}
-
-__device__ inline float step_f(float a) {
-    return (a <= 0.0f) ? 0.0f : 1.0f;
 }
 
 __device__ inline float relu(float a) {
@@ -283,12 +317,12 @@ __device__ float3 forward_pass(int x,
         // also on iteration tr
         ch.g_d[tr] = normal_pdf_rectified(ch.dist[tr]);
         
-        float3 normals_eval = trilinear<float3>(normals, p0, p1,
+        ch.normal[tr] = trilinear<float3>(normals, p0, p1,
                                                 make_int3(sdf_shape),
                                                 ch.pos[tr],
                                                 make_float3(0.0f, 0.0f, 0.0f));
                                                 
-        ch.intensity[tr] = shade(ch.pos[tr], ch.origin, normals_eval);
+        ch.intensity[tr] = shade(ch.pos[tr], ch.origin, ch.normal[tr]);
         
         ch.opc[tr + 1] = ch.opc[tr] + ch.g_d[tr] * step;
         
@@ -348,6 +382,10 @@ void backwards_pass(
     float3 dnormals_data[4][4][4];
     size_t dnormals_dims[3] = {4, 4, 4};
     assign(&dnormals, (float3*) dnormals_data, dnormals_dims);
+    
+    // TODO: set these somewhere else
+    const float u_s = 1.0f;
+    const float k = -1.0f;
     
 #pragma unroll
     for (int tr = ITERATIONS; tr >= 0; tr--) {
@@ -418,19 +456,39 @@ void backwards_pass(
                                                                           sigma  \/ pi sigma
                     
                     */
+                    // TODO: Move these somewhere else?
                     float mean = 0.0f;
                     float sigma = 1e-2f;
+
+                    // represents the derivative of g_d
                     float g_d_d = (-(1.0f / sqrtf(2.0f)) * (-1.0f * mean + max(0.0f, dist)) *
-                                   exp((-0.5 * SQUARE(-1.0f * mean + max(0.0f, dist))) / (SQUARE(sigma))) *
+                                   exp((-0.5f * SQUARE(-1.0f * mean + max(0.0f, dist))) / (SQUARE(sigma))) *
                                    step_f(dist) * (dtrilinear_sdf_ijk)) /
                                   (SQUARE(sigma) * sqrtf(((float) M_PI) * SQUARE(sigma)));
-                                  
+
+                    // represents dScattering/dSDF
+                    float scattering_d = g_d_d * u_s;
+
+                    // represents dIntensity/dSDF
+                    float3 intensity_d = shade_d(pos, ch.origin, ch.normal[tr], dnormalstrilinear_sdf_ijk);
+                    
+                    /**
+                     * dvs_{t + 1}/dSDF
+                     * In this loop, we pull out all the terms that aren't a recursive reference
+                     * to dvs/dSDF or dopc/dSDF
+                     *
+                     * For those terms, we need to propagate a coefficient
+                     *
+                     *       2                                   k*opc_t1(SDF)  d                                                          k*opc_t1(SDF)  d                                      k*opc_t1(SDF)  d                                                k*opc_t1(SDF)  d                      d
+                     * k*step *intensity(SDF)*scattering_t(SDF)*e             *----(g_d_t(SDF)) + k*step*intensity(SDF)*scattering_t(SDF)*e             *----(opc_t(SDF)) + step*intensity(SDF)*e             *----(scattering_t(SDF)) + step*scattering_t(SDF)*e             *----(intensity(SDF)) + ----(vs_t(SDF))
+                     *                                                         dSDF                                                                      dSDF                                                  dSDF                                                            dSDF                   dSDF
+                     */
+                    
                     atomicAdd(&index(dLossdSDF, sdf_location.x, sdf_location.y, sdf_location.z),
                               1.0f);
                 }
             }
         }
-        
     }
 }
 
