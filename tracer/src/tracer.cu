@@ -178,6 +178,8 @@ typedef struct {
     float3 ray_pos;
     float3 ray_vec;
     float3 origin;
+
+    float step;
 } chk;
 
 __device__ inline float step_f(float a) {
@@ -231,8 +233,8 @@ __device__ float3 light_source_d(float3 light_color,
                                  float ka = 100.0f) {
     float3 light_vec = normalize(light_position - position);
     return kd * mesa(dot(normal, light_vec), 0.0f, 1.0f) *
-        dot(dNormaldSDF, light_vec)
-        * light_color;
+           dot(dNormaldSDF, light_vec)
+           * light_color;
 }
 
 __device__ float3 shade_d(float3 position, float3 origin, float3 normal,
@@ -291,6 +293,8 @@ __device__ float3 forward_pass(int x,
     ch.ray_pos = make_float3(0.0f, 0.0f, 0.0f);
     ch.ray_vec = make_float3(0.0f, 0.0f, 0.0f);
     ch.origin = make_float3(0.0f, 0.0f, 0.0f);
+
+    ch.step = 1.0f / 100.0f;
     
     const float u_s = 1.0f;
     const float k = -1.0f;
@@ -306,8 +310,9 @@ __device__ float3 forward_pass(int x,
                                        1.0f);
         // on iteration tr, because the pos was from iteration tr
         float ds = to_render_dist(ch.dist[tr]);
-        
-        float step = 1.0f / 100.0f;
+
+        float step = ch.step;
+        //float step = 1.0f / 100.0f;
         //float step = ds;
         // uncomment for sphere tracing
         //float step = ch.dist[tr];
@@ -318,10 +323,10 @@ __device__ float3 forward_pass(int x,
         ch.g_d[tr] = normal_pdf_rectified(ch.dist[tr]);
         
         ch.normal[tr] = trilinear<float3>(normals, p0, p1,
-                                                make_int3(sdf_shape),
-                                                ch.pos[tr],
-                                                make_float3(0.0f, 0.0f, 0.0f));
-                                                
+                                          make_int3(sdf_shape),
+                                          ch.pos[tr],
+                                          make_float3(0.0f, 0.0f, 0.0f));
+                                          
         ch.intensity[tr] = shade(ch.pos[tr], ch.origin, ch.normal[tr]);
         
         ch.opc[tr + 1] = ch.opc[tr] + ch.g_d[tr] * step;
@@ -391,9 +396,11 @@ void backwards_pass(
     for (int tr = ITERATIONS; tr >= 0; tr--) {
         float3 pos = ch.pos[tr - 1];
         float dist = ch.dist[tr - 1];
+        float g_d = ch.g_d[tr - 1];
         float opc_t1 = ch.opc[tr];
-        float opc = ch.opc[tr - 1];
         float3 vs = ch.volumetric_shaded[tr - 1];
+        float3 intensity = ch.intensity[tr - 1];
+        float scattering = g_d * u_s;
         
         float3 grid_space;
         float3 alpha = populate_trilinear_pos(&sdf_pos, p0, p1, make_int3(sdf_shape),
@@ -414,6 +421,17 @@ void backwards_pass(
                             
                             pos, false);
                             
+        float expf_k_opc1 = expf(k * opc_t1);
+        
+        // see below for some explanation
+        float3 t1 = k * SQUARE(ch.step) * intensity * scattering * expf_k_opc1;
+        float3 t2 = k * ch.step * intensity * scattering * expf_k_opc1;
+        float3 t3 = ch.step * intensity * expf_k_opc1;
+        float t4 = ch.step * scattering * expf_k_opc1;
+        float t5 = 1.0f;
+        
+        float3 opc_accumulator = make_float3(0.0f, 0.0f, 0.0f);
+        
         // the ijk coordinate system is centered at the ray evaluation position - 1
         for (int i = -1; i < 3; i++) {
             for (int j = -1; j < 3; j++) {
@@ -459,30 +477,54 @@ void backwards_pass(
                     // TODO: Move these somewhere else?
                     float mean = 0.0f;
                     float sigma = 1e-2f;
-
+                    
                     // represents the derivative of g_d
                     float g_d_d = (-(1.0f / sqrtf(2.0f)) * (-1.0f * mean + max(0.0f, dist)) *
                                    exp((-0.5f * SQUARE(-1.0f * mean + max(0.0f, dist))) / (SQUARE(sigma))) *
                                    step_f(dist) * (dtrilinear_sdf_ijk)) /
                                   (SQUARE(sigma) * sqrtf(((float) M_PI) * SQUARE(sigma)));
-
+                                  
                     // represents dScattering/dSDF
                     float scattering_d = g_d_d * u_s;
-
-                    // represents dIntensity/dSDF
-                    float3 intensity_d = shade_d(pos, ch.origin, ch.normal[tr], dnormalstrilinear_sdf_ijk);
                     
+                    // represents dIntensity/dSDF
+                    float3 intensity_d = shade_d(pos, ch.origin, ch.normal[tr],
+                                                 dnormalstrilinear_sdf_ijk);
+                                                 
                     /**
                      * dvs_{t + 1}/dSDF
-                     * In this loop, we pull out all the terms that aren't a recursive reference
-                     * to dvs/dSDF or dopc/dSDF
-                     *
-                     * For those terms, we need to propagate a coefficient
                      *
                      *       2                                   k*opc_t1(SDF)  d                                                          k*opc_t1(SDF)  d                                      k*opc_t1(SDF)  d                                                k*opc_t1(SDF)  d                      d
                      * k*step *intensity(SDF)*scattering_t(SDF)*e             *----(g_d_t(SDF)) + k*step*intensity(SDF)*scattering_t(SDF)*e             *----(opc_t(SDF)) + step*intensity(SDF)*e             *----(scattering_t(SDF)) + step*scattering_t(SDF)*e             *----(intensity(SDF)) + ----(vs_t(SDF))
                      *                                                         dSDF                                                                      dSDF                                                  dSDF                                                            dSDF                   dSDF
-                     */
+                     *
+                     * The first term is t1 (dg_d/dSDF), second term is t2 (dopc_t/dSDF), third term is
+                     * t3 (dScattering/dSDF), fourth term is t4 (dIntensity/dSDF), fifth term is t5 (dvs_t/dSDF)
+                     *
+                     * After substituting some of the terms that we computed above, we can rewrite dvs_{t + 1}/dSDf as
+                     *
+                     * ((t1 * A + t3 * B) * dTrilinear/dSDF + (t4 * C) * dNormalsTrilinear/dSDF) + (t2 * dopc_t/dSDF + t5 * dvs_t/dSDF)
+                     *
+                     * (we can get A and B and C from the g_d_d, scattering_d, and intensity_d respectively)
+                     *
+                     * Note that the first term in the expression above can just be added to our accumulator
+                     *
+                     * This leaves the remaining two terms
+                     *
+                     * (t2 * dopc_t/dSDF + t5 * dvs_t/dSDF)
+                     *
+                     * We keep accumulating the value of t2 and t5 through iterations of the reverse tracing loop.
+                     * Okay, well t5 is actually kind of boring because it's just 1, but t2 is the interesting bit.
+                     *
+                     * We can rewrite dvs_{t + 1} as c_1 * dOpc_t1/dSDF + c_2 * dvs_t1/dSDF. c_1 starts out as zero on
+                     * the first iteration, but by the second iteration it is equal to t2. (and c_2 is always 1)
+                     * 
+                     **/
+                    
+                    float3 drops_out_vs = t1 * g_d_d + t3 * scattering_d + t4 * intensity_d;
+                    float3 dopc_contribution = opc_accumulator * (g_d_d * ch.step);
+                    float3 drops_out = drops_out_vs + dopc_contribution;
+                    opc_accumulator += t2;
                     
                     atomicAdd(&index(dLossdSDF, sdf_location.x, sdf_location.y, sdf_location.z),
                               1.0f);
