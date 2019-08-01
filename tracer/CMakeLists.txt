@@ -82,7 +82,7 @@ find_package(CUDA REQUIRED)
 
 set(
     CUDA_NVCC_FLAGS
-    ${CUDA_NVCC_FLAGS} -G -g
+    ${CUDA_NVCC_FLAGS} -G -g -expt-extended-lambda
 )
 
 cuda_add_executable(tracer_cuda src/tracer.cu)
