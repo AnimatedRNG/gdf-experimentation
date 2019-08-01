@@ -13,6 +13,8 @@
 
 #define ITERATIONS 900
 
+#define SQUARE(a) (a * a)
+
 __device__ void projection_gen(int x,
                                int y,
                                cuda_array<float, 2>* projection,
@@ -167,8 +169,8 @@ void sobel(
 typedef struct {
     float3 pos[ITERATIONS + 1];
     float dist[ITERATIONS + 1];
+    float g_d[ITERATIONS + 1];
     float opc[ITERATIONS + 1];
-    float3 normals[ITERATIONS + 1];
     float3 intensity[ITERATIONS + 1];
     float3 volumetric_shaded[ITERATIONS + 1];
     
@@ -220,6 +222,10 @@ __device__ inline float normal_pdf(float x, float sigma = 1e-7f,
                                    float mean = 0.0f) {
     return (1.0f / sqrtf(2.0f * (float) M_PI * sigma * sigma)) *
            expf((x - mean) * (x - mean) / (-2.0f * sigma * sigma));
+}
+
+__device__ inline float step_f(float a) {
+    return (a <= 0.0f) ? 0.0f : 1.0f;
 }
 
 __device__ inline float relu(float a) {
@@ -275,18 +281,18 @@ __device__ float3 forward_pass(int x,
         ch.pos[tr + 1] = ch.pos[tr] + step * ch.ray_vec;
         
         // also on iteration tr
-        float g_d = normal_pdf_rectified(ch.dist[tr]);
+        ch.g_d[tr] = normal_pdf_rectified(ch.dist[tr]);
         
-        ch.normals[tr] = trilinear<float3>(normals, p0, p1,
-                                           make_int3(sdf_shape),
-                                           ch.pos[tr],
-                                           make_float3(0.0f, 0.0f, 0.0f));
-                                           
-        ch.intensity[tr] = shade(ch.pos[tr], ch.origin, ch.normals[tr]);
+        float3 normals_eval = trilinear<float3>(normals, p0, p1,
+                                                make_int3(sdf_shape),
+                                                ch.pos[tr],
+                                                make_float3(0.0f, 0.0f, 0.0f));
+                                                
+        ch.intensity[tr] = shade(ch.pos[tr], ch.origin, normals_eval);
         
-        ch.opc[tr + 1] = ch.opc[tr] + g_d * step;
+        ch.opc[tr + 1] = ch.opc[tr] + ch.g_d[tr] * step;
         
-        float scattering = g_d * u_s;
+        float scattering = ch.g_d[tr] * u_s;
         
         ch.volumetric_shaded[tr + 1] =
             ch.volumetric_shaded[tr] + scattering * expf(k * ch.opc[tr + 1]) *
@@ -346,26 +352,30 @@ void backwards_pass(
 #pragma unroll
     for (int tr = ITERATIONS; tr >= 0; tr--) {
         float3 pos = ch.pos[tr - 1];
+        float dist = ch.dist[tr - 1];
+        float opc_t1 = ch.opc[tr];
+        float opc = ch.opc[tr - 1];
+        float3 vs = ch.volumetric_shaded[tr - 1];
         
         float3 grid_space;
         float3 alpha = populate_trilinear_pos(&sdf_pos, p0, p1, make_int3(sdf_shape),
                                               pos, grid_space);
-
+                                              
         dTrilinear_dSDF(&sdf_pos, &dsdf,
                         p0, p1, make_int3(sdf_shape),
-
+                        
                         alpha, grid_space,
-
+                        
                         pos, false);
-
+                        
         dTrilinear_dNormals(&sdf_pos, sdf,
                             &dnormals,
                             p0, p1, make_int3(sdf_shape),
-
+                            
                             alpha, grid_space,
-
+                            
                             pos, false);
-
+                            
         // the ijk coordinate system is centered at the ray evaluation position - 1
         for (int i = -1; i < 3; i++) {
             for (int j = -1; j < 3; j++) {
@@ -374,7 +384,7 @@ void backwards_pass(
                     // sdf_location gives us the location of the ray evaluation
                     // in grid space
                     int3 sdf_location = index_off(&sdf_pos, i, j, k, 1);
-
+                    
                     // dTrilinear/dSDF(i, j, k) represents the derivative of the
                     // trilinear interpolation of the SDF at the location ijk
                     // (starts at (-1, -1, -1))
@@ -386,14 +396,35 @@ void backwards_pass(
                         // at (-1, -1, -1) -- that's why there is an offset
                         dtrilinear_sdf_ijk = index_off(&dsdf, i, j, k, 1);
                     }
-
+                    
                     // dNormalsTrilinear/dSDF(i, j, k) represents
                     // Trilinear(Normals(i, j, k)). It's the trilinear interpolated
                     // normal of the SDF at location ijk (starts at -1, -1, -1)
                     float3 dnormalstrilinear_sdf_ijk = index_off(&dnormals, i, j, k, 1);
-
                     
-
+                    /*
+                      dg_d/ddist -- (dist is a trilinear evaluation of the SDF)
+                    
+                                                                                                           2
+                                                                         -0.5 (-mean + Max(0, dist_t(SDF)))
+                                                                         ------------------------------------
+                                                                                          2
+                                                                                     sigma                                             d
+                     -0.707106781186547 (-mean + Max(0, dist_t(SDF)))  e                                      Heaviside(dist_t(SDF)) -----(dist (SDF))
+                                                                                                                                     dSDF
+                     ------------------------------------------------------------------------------------------------------------------------------
+                                                                                    ---------
+                                                                               2   /        2
+                                                                          sigma  \/ pi sigma
+                    
+                    */
+                    float mean = 0.0f;
+                    float sigma = 1e-2f;
+                    float g_d_d = (-(1.0f / sqrtf(2.0f)) * (-1.0f * mean + max(0.0f, dist)) *
+                                   exp((-0.5 * SQUARE(-1.0f * mean + max(0.0f, dist))) / (SQUARE(sigma))) *
+                                   step_f(dist) * (dtrilinear_sdf_ijk)) /
+                                  (SQUARE(sigma) * sqrtf(((float) M_PI) * SQUARE(sigma)));
+                                  
                     atomicAdd(&index(dLossdSDF, sdf_location.x, sdf_location.y, sdf_location.z),
                               1.0f);
                 }
@@ -671,6 +702,17 @@ void trace() {
     //to_host<float3, 3>(normals_device, normals_host);
     to_host<float, 2>(projection_device, projection_host);
     to_host<float, 3>(forward_device, forward_host);
+    to_host<float, 3>(dloss_dsdf_device, dloss_dsdf_host);
+    
+    for (int i = 0; i < 64; i++) {
+        for (int j = 0; j < 64; j++) {
+            for (int k = 0; k < 64; k++) {
+                std::cout << index(dloss_dsdf_host, i, j, k) << "\t";
+            }
+            std::cout << std::endl;
+        }
+        std::cout << std::endl;
+    }
     
     print<float>(projection_host);
     write_img("forward_cuda.bmp", forward_host);
