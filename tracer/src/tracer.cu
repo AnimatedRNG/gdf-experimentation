@@ -182,6 +182,10 @@ typedef struct {
     float step;
 } chk;
 
+__device__ inline float norm_sq(float3 a) {
+    return a.x * a.x + a.y * a.y + a.z * a.z;
+}
+
 __device__ inline float step_f(float a) {
     return (a < 0.0f) ? 0.0f : 1.0f;
 }
@@ -398,7 +402,7 @@ void backwards_pass(
         float dist = ch.dist[tr - 1];
         float g_d = ch.g_d[tr - 1];
         float opc_t1 = ch.opc[tr];
-        float3 vs = ch.volumetric_shaded[tr - 1];
+        float3 vs_t1 = ch.volumetric_shaded[tr];
         float3 intensity = ch.intensity[tr - 1];
         float scattering = g_d * u_s;
         
@@ -523,11 +527,25 @@ void backwards_pass(
                     
                     float3 drops_out_vs = t1 * g_d_d + t3 * scattering_d + t4 * intensity_d;
                     float3 dopc_contribution = opc_accumulator * (g_d_d * ch.step);
-                    float3 drops_out = drops_out_vs + dopc_contribution;
+                    float3 dvsdSDF = drops_out_vs + dopc_contribution;
                     opc_accumulator += t2;
+
+                    /**
+                     * Now that we have dvs/dSDF, we need to compute dLoss/dSDF
+                     * 
+                     * 1/n * \sum_{i=0}^{n} (y().i - vs(SDF).i)^2
+                     *
+                     * and the derivative is
+                     *
+                     * 2/n * \sum{i=0}^{n} (y().i - vs(SDF).i) * (-dvs/dSDF))
+                     */
+                    
+                    // divide by width * height?
+                    float3 target = make_float3(1.0f, 1.0f, 1.0f);
+                    float dLossdSDF_ijk = (2.0f / 3.0f) * norm_sq((target - vs_t1) * dvsdSDF);
                     
                     atomicAdd(&index(dLossdSDF, sdf_location.x, sdf_location.y, sdf_location.z),
-                              1.0f);
+                              dLossdSDF_ijk);
                 }
             }
         }
