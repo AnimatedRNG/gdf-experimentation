@@ -198,7 +198,7 @@ def trilinear_sobel_derivatives():
     neighbors = gen_neighbors("SDF", 2)
     alphas = [symbols("alpha{}".format(i)) for i in range(3)]
     tsb = trilinear_sobel(alphas, neighbors)
-    #jacobian(neighbors, tsb, True)
+    jacobian(neighbors, tsb, False)
 
     '''mappings = {tsb_name: vec_elem_to_mapping(tsb_name, "")
                 for tsb_name in tsb.keys()}
@@ -227,13 +227,23 @@ def vs_test():
     SDF = symbols("SDF")
     vs_t = Function("vs_t")(SDF)
 
+    g_d_t = Function("g_d_t")(SDF)
+    opc_t = Function("opc_t")(SDF)
+    opc_t1_e = opc_t + g_d_t
+    opc_t1_diff = diff(opc_t1_e, SDF)
+
     scattering_t = Function("scattering_t")(SDF)
     opc_t1 = Function("opc_t1")(SDF)
     intensity = Function("intensity")(SDF)
     k, step = symbols("k step")
 
     vs_t1 = vs_t + scattering_t * exp(k * opc_t1) * intensity * step
-    pprint(diff(vs_t1, SDF))
+    deriv = diff(vs_t1, SDF)
+    print("\n\nbase derivative")
+    pprint(deriv)
+    deriv = deriv.subs(Derivative(opc_t1), opc_t1_diff)
+    print("\n\nderivative after substituting opc_t1")
+    pprint(deriv)
 
 
 def light_source(light_color,
@@ -300,8 +310,8 @@ if __name__ == '__main__':
     # neighbors = gen_neighbors()
     # jacobian(neighbors, sobel(neighbors))
 
-    trilinear_sobel_derivatives()
-    # vs_test()
+    # trilinear_sobel_derivatives()
+    vs_test()
     # opc_test()
 
     # cs = "cs!0!2!0"
