@@ -91,6 +91,18 @@ __device__ float3 populate_trilinear_pos(
                   clamp(int(floor(grid_space.z)), 0, sdf_shape.z - 1)
               );
 
+    int3 _lp = make_int3(
+        clamp(lp.x - 1, 0, sdf_shape.x - 1),
+        clamp(lp.y - 1, 0, sdf_shape.y - 1),
+        clamp(lp.z - 1, 0, sdf_shape.z - 1)
+    );
+
+    int3 lp_ = make_int3(
+        clamp(lp.x + 1, 0, sdf_shape.x - 1),
+        clamp(lp.y + 1, 0, sdf_shape.y - 1),
+        clamp(lp.z + 1, 0, sdf_shape.z - 1)
+    );
+
     // at (1, 1, 1)
     int3 up = make_int3(
                   clamp(int(ceil(grid_space.x)), 0, sdf_shape.x - 1),
@@ -98,11 +110,29 @@ __device__ float3 populate_trilinear_pos(
                   clamp(int(ceil(grid_space.z)), 0, sdf_shape.z - 1)
               );
 
+    int3 _up = make_int3(
+        clamp(up.x - 1, 0, sdf_shape.x - 1),
+        clamp(up.y - 1, 0, sdf_shape.y - 1),
+        clamp(up.z - 1, 0, sdf_shape.z - 1)
+    );
+
+    int3 up_ = make_int3(
+        clamp(up.x + 1, 0, sdf_shape.x - 1),
+        clamp(up.y + 1, 0, sdf_shape.y - 1),
+        clamp(up.z + 1, 0, sdf_shape.z - 1)
+    );
+
     float3 alpha = grid_space - make_float3(lp);
 
     // sdf_pos starts at (-1, -1, -1)
 
     // maybe only set these if the access is valid?
+
+    /*assert(lp.x >= 0);
+    assert(_lp.x >= 0);
+    assert(lp_.x >= 0);
+    assert(_up.x >= 0);
+    assert(up_.x >= 0);*/
 
     // region 0 - 1
     index_off(sdf_pos, 0, 0, 0, 1) = make_int3(lp.x, lp.y, lp.z);
@@ -115,24 +145,24 @@ __device__ float3 populate_trilinear_pos(
     index_off(sdf_pos, 1, 1, 1, 1) = make_int3(up.x, up.y, up.z);
 
     // region -1 - 0
-    index_off(sdf_pos, 0, 0, 0, 0) = make_int3(lp.x - 1, lp.y - 1, lp.z - 1);
-    index_off(sdf_pos, 0, 0, 1, 0) = make_int3(lp.x - 1, lp.y - 1, up.z - 1);
-    index_off(sdf_pos, 0, 1, 0, 0) = make_int3(lp.x - 1, up.y - 1, lp.z - 1);
-    index_off(sdf_pos, 0, 1, 1, 0) = make_int3(lp.x - 1, up.y - 1, up.z - 1);
-    index_off(sdf_pos, 1, 0, 0, 0) = make_int3(up.x - 1, lp.y - 1, lp.z - 1);
-    index_off(sdf_pos, 1, 0, 1, 0) = make_int3(up.x - 1, lp.y - 1, up.z - 1);
-    index_off(sdf_pos, 1, 1, 0, 0) = make_int3(up.x - 1, up.y - 1, lp.z - 1);
-    index_off(sdf_pos, 1, 1, 1, 0) = make_int3(up.x - 1, up.y - 1, up.z - 1);
+    index_off(sdf_pos, 0, 0, 0, 0) = make_int3(_lp.x, _lp.y, _lp.z);
+    index_off(sdf_pos, 0, 0, 1, 0) = make_int3(_lp.x, _lp.y, _up.z);
+    index_off(sdf_pos, 0, 1, 0, 0) = make_int3(_lp.x, _up.y, _lp.z);
+    index_off(sdf_pos, 0, 1, 1, 0) = make_int3(_lp.x, _up.y, _up.z);
+    index_off(sdf_pos, 1, 0, 0, 0) = make_int3(_up.x, _lp.y, _lp.z);
+    index_off(sdf_pos, 1, 0, 1, 0) = make_int3(_up.x, _lp.y, _up.z);
+    index_off(sdf_pos, 1, 1, 0, 0) = make_int3(_up.x, _up.y, _lp.z);
+    index_off(sdf_pos, 1, 1, 1, 0) = make_int3(_up.x, _up.y, _up.z);
 
     // region 1 - 2
-    index_off(sdf_pos, 0, 0, 0, 2) = make_int3(lp.x + 1, lp.y + 1, lp.z + 1);
-    index_off(sdf_pos, 0, 0, 1, 2) = make_int3(lp.x + 1, lp.y + 1, up.z + 1);
-    index_off(sdf_pos, 0, 1, 0, 2) = make_int3(lp.x + 1, up.y + 1, lp.z + 1);
-    index_off(sdf_pos, 0, 1, 1, 2) = make_int3(lp.x + 1, up.y + 1, up.z + 1);
-    index_off(sdf_pos, 1, 0, 0, 2) = make_int3(up.x + 1, lp.y + 1, lp.z + 1);
-    index_off(sdf_pos, 1, 0, 1, 2) = make_int3(up.x + 1, lp.y + 1, up.z + 1);
-    index_off(sdf_pos, 1, 1, 0, 2) = make_int3(up.x + 1, up.y + 1, lp.z + 1);
-    index_off(sdf_pos, 1, 1, 1, 2) = make_int3(up.x + 1, up.y + 1, up.z + 1);
+    index_off(sdf_pos, 0, 0, 0, 2) = make_int3(lp_.x , lp_.y , lp_.z);
+    index_off(sdf_pos, 0, 0, 1, 2) = make_int3(lp_.x , lp_.y , up_.z);
+    index_off(sdf_pos, 0, 1, 0, 2) = make_int3(lp_.x , up_.y , lp_.z);
+    index_off(sdf_pos, 0, 1, 1, 2) = make_int3(lp_.x , up_.y , up_.z);
+    index_off(sdf_pos, 1, 0, 0, 2) = make_int3(up_.x , lp_.y , lp_.z);
+    index_off(sdf_pos, 1, 0, 1, 2) = make_int3(up_.x , lp_.y , up_.z);
+    index_off(sdf_pos, 1, 1, 0, 2) = make_int3(up_.x , up_.y , lp_.z);
+    index_off(sdf_pos, 1, 1, 1, 2) = make_int3(up_.x , up_.y , up_.z);
 
     return alpha;
 }
@@ -167,8 +197,7 @@ __device__ void dTrilinear_dSDF(cuda_array < int3, 3>* sdf_pos,   // 4x4x4
         }
     } else {
         // NOTE -- offset 0 because dsdf_vals starts at (0, 0, 0)
-        index_off(dsdf_vals, 0, 0, 0,
-                  0) = (1 - alpha.x) * (1 - alpha.y) * (1 - alpha.z);
+        index_off(dsdf_vals, 0, 0, 0, 0) = (1 - alpha.x) * (1 - alpha.y) * (1 - alpha.z);
         index_off(dsdf_vals, 0, 0, 1, 0) = alpha.z * (1 - alpha.x) * (1 - alpha.y);
         index_off(dsdf_vals, 0, 1, 0, 0) = alpha.y * (1 - alpha.x) * (1 - alpha.z);
         index_off(dsdf_vals, 0, 1, 1, 0) = alpha.y * alpha.z * (1 - alpha.x);
@@ -331,7 +360,7 @@ __device__ void dTrilinear_dNormals(cuda_array < int3, 3>*
                                                                                                                                                                            offset.z + 1)) * (index_clamped(sdf_vals, offset.x + 0, offset.y + 0,
                                                                                                                                                                                    offset.z + 0) + 2 * index_clamped(sdf_vals, offset.x + 0, offset.y + 0,
                                                                                                                                                                                            offset.z + 1) + index_clamped(sdf_vals, offset.x + 0, offset.y + 0,
-                                                                                                                                                                                                   offset.z + 2)))) + (1 - alpha.x) * (1 - alpha.y) * (1 - alpha.z) * (index(
+                                                                                                                                                                                                   offset.z + 2)))) + (1 - alpha.x) * (1 - alpha.y) * (1 - alpha.z) * (index_clamped(
                                                                                                                                                                                                            sdf_vals, offset.x - 1, offset.y + 0, offset.z + 0) - index_clamped(sdf_vals,
                                                                                                                                                                                                                    offset.x + 1, offset.y + 0, offset.z + 0)) * (index_clamped(sdf_vals, offset.x + 0,
                                                                                                                                                                                                                            offset.y - 1, offset.z + 0) + 2 * index_clamped(sdf_vals, offset.x + 0, offset.y + 0,
@@ -741,7 +770,7 @@ __device__ void dTrilinear_dNormals(cuda_array < int3, 3>*
                                                                                                                                                                            offset.z + 1)) * (index_clamped(sdf_vals, offset.x + 0, offset.y + 0,
                                                                                                                                                                                    offset.z + 0) + 2 * index_clamped(sdf_vals, offset.x + 0, offset.y + 0,
                                                                                                                                                                                            offset.z + 1) + index_clamped(sdf_vals, offset.x + 0, offset.y + 0,
-                                                                                                                                                                                                   offset.z + 2)))) + (1 - alpha.x) * (1 - alpha.y) * (1 - alpha.z) * (index(
+                                                                                                                                                                                                   offset.z + 2)))) + (1 - alpha.x) * (1 - alpha.y) * (1 - alpha.z) * (index_clamped(
                                                                                                                                                                                                            sdf_vals, offset.x + 0, offset.y - 1, offset.z + 0) - index_clamped(sdf_vals,
                                                                                                                                                                                                                    offset.x + 0, offset.y + 1, offset.z + 0)) * (index_clamped(sdf_vals, offset.x - 1,
                                                                                                                                                                                                                            offset.y + 0, offset.z + 0) + 2 * index_clamped(sdf_vals, offset.x + 0, offset.y + 0,
@@ -1151,7 +1180,7 @@ __device__ void dTrilinear_dNormals(cuda_array < int3, 3>*
                                                                                                                                                                    offset.z + 2)) * (index_clamped(sdf_vals, offset.x + 0, offset.y - 1,
                                                                                                                                                                            offset.z + 1) + 2 * index_clamped(sdf_vals, offset.x + 0, offset.y + 0,
                                                                                                                                                                                    offset.z + 1) + index_clamped(sdf_vals, offset.x + 0, offset.y + 1,
-                                                                                                                                                                                           offset.z + 1)))) + (1 - alpha.y) * (1 - alpha.z) * (alpha.x - 1) * (index(
+                                                                                                                                                                                           offset.z + 1)))) + (1 - alpha.y) * (1 - alpha.z) * (alpha.x - 1) * (index_clamped(
                                                                                                                                                                                                    sdf_vals, offset.x - 1, offset.y + 0, offset.z + 0) + 2 * index_clamped(sdf_vals,
                                                                                                                                                                                                            offset.x + 0, offset.y + 0, offset.z + 0) + index_clamped(sdf_vals, offset.x + 1,
                                                                                                                                                                                                                    offset.y + 0, offset.z + 0)) * (index_clamped(sdf_vals, offset.x + 0, offset.y - 1,

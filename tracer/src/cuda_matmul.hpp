@@ -3,6 +3,8 @@
 #include "math.h"
 #include "helper_math.h"
 
+//#define BOUNDS_CHECKING
+
 template <typename T, size_t N>
 struct cuda_array {
     size_t shape[N];
@@ -74,6 +76,9 @@ __host__ void delete_array(cuda_array<T, N>* array) {
 
 template <typename T>
 __host__ __device__ T& index(cuda_array<T, 1>* arr, const int& i) {
+#ifdef BOUNDS_CHECKING
+    assert(i < arr->shape[0] && i >= 0);
+#endif // BOUNDS_CHECKING
     return arr->data[i * arr->stride[0]];
 }
 
@@ -81,6 +86,10 @@ template <typename T>
 __host__ __device__ T& index(cuda_array<T, 2>* arr,
                              const int& i,
                              const int& j) {
+#ifdef BOUNDS_CHECKING
+    assert(i < arr->shape[0] && i >= 0);
+    assert(j < arr->shape[1] && j >= 0);
+#endif // BOUNDS_CHECKING
     return arr->data[i * arr->stride[0] + j * arr->stride[1]];
 }
 
@@ -89,6 +98,11 @@ __host__ __device__ T& index(cuda_array<T, 3>* arr,
                              const int& i,
                              const int& j,
                              const int& k) {
+#ifdef BOUNDS_CHECKING
+    assert(i < arr->shape[0] && i >= 0);
+    assert(j < arr->shape[1] && j >= 0);
+    assert(k < arr->shape[2] && k >= 0);
+#endif // BOUNDS_CHECKING
     return arr->data[i * arr->stride[0] + j * arr->stride[1] + k * arr->stride[2]];
 }
 
@@ -98,6 +112,11 @@ __host__ __device__ T& index_off(cuda_array<T, 3>* arr,
                                  const int& j,
                                  const int& k,
                                  const int& off) {
+#ifdef BOUNDS_CHECKING
+    assert(i + off < arr->shape[0] && i + off >= 0);
+    assert(j + off < arr->shape[1] && j + off >= 0);
+    assert(k + off < arr->shape[2] && k + off >= 0);
+#endif // BOUNDS_CHECKING
     return arr->data[(off + i) * arr->stride[0] + (off + j) * arr->stride[1] +
                                (off + k) * arr->stride[2]];
 }
@@ -108,6 +127,12 @@ __host__ __device__ T& index(cuda_array<T, 4>* arr,
                              const int& j,
                              const int& k,
                              const int& l) {
+#ifdef BOUNDS_CHECKING
+    assert(i < arr->shape[0] && i >= 0);
+    assert(j < arr->shape[1] && j >= 0);
+    assert(k < arr->shape[2] && k >= 0);
+    assert(l < arr->shape[3] && l >= 0);
+#endif //BOUNDS_CHECKING
     return arr->data[i * arr->stride[0] + j * arr->stride[1] + k * arr->stride[2]
                        + l * arr->stride[3]];
 }

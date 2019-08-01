@@ -69,19 +69,26 @@ __device__ float h(cuda_array<float, 3>* sdf,
     
     uint3 c_ = clamp(pos, make_uint3(0, 0, 0), sdf_shape - 1);
     
+    auto clamped_index = [sdf, sdf_shape](int x, int y, int z) {
+        return index(sdf,
+                     clamp(x, 0, int(sdf_shape.x - 1)),
+                     clamp(y, 0, int(sdf_shape.y - 1)),
+                     clamp(z, 0, int(sdf_shape.z - 1)));
+    };
+    
     switch (dim) {
         case 0:
-            return index(sdf, c_.x - 1, c_.y, c_.z) * h_kern[0] +
-                   index(sdf, c_.x, c_.y, c_.z) * h_kern[1] +
-                   index(sdf, c_.x + 1, c_.y, c_.z) * h_kern[2];
+            return clamped_index(c_.x - 1, c_.y, c_.z) * h_kern[0] +
+                   clamped_index(c_.x, c_.y, c_.z) * h_kern[1] +
+                   clamped_index(c_.x + 1, c_.y, c_.z) * h_kern[2];
         case 1:
-            return index(sdf, c_.x, c_.y - 1, c_.z) * h_kern[0] +
-                   index(sdf, c_.x, c_.y, c_.z) * h_kern[1] +
-                   index(sdf, c_.x, c_.y + 1, c_.z) * h_kern[2];
+            return clamped_index(c_.x, c_.y - 1, c_.z) * h_kern[0] +
+                   clamped_index(c_.x, c_.y, c_.z) * h_kern[1] +
+                   clamped_index(c_.x, c_.y + 1, c_.z) * h_kern[2];
         case 2:
-            return index(sdf, c_.x, c_.y, c_.z - 1) * h_kern[0] +
-                   index(sdf, c_.x, c_.y, c_.z) * h_kern[1] +
-                   index(sdf, c_.x, c_.y, c_.z + 1) * h_kern[2];
+            return clamped_index(c_.x, c_.y, c_.z - 1) * h_kern[0] +
+                   clamped_index(c_.x, c_.y, c_.z) * h_kern[1] +
+                   clamped_index(c_.x, c_.y, c_.z + 1) * h_kern[2];
         default:
             assert(false);
             return -1.0f;
@@ -96,16 +103,23 @@ __device__ float h_p(cuda_array<float, 3>* sdf,
     
     uint3 c_ = clamp(pos, make_uint3(0, 0, 0), sdf_shape - 1);
     
+    auto clamped_index = [sdf, sdf_shape](int x, int y, int z) {
+        return index(sdf,
+                     clamp(x, 0, int(sdf_shape.x - 1)),
+                     clamp(y, 0, int(sdf_shape.y - 1)),
+                     clamp(z, 0, int(sdf_shape.z - 1)));
+    };
+    
     switch (dim) {
         case 0:
-            return index(sdf, c_.x - 1, c_.y, c_.z) * h_kern[0] +
-                   index(sdf, c_.x + 1, c_.y, c_.z) * h_kern[1];
+            return clamped_index(c_.x - 1, c_.y, c_.z) * h_kern[0] +
+                   clamped_index(c_.x + 1, c_.y, c_.z) * h_kern[1];
         case 1:
-            return index(sdf, c_.x, c_.y - 1, c_.z) * h_kern[0] +
-                   index(sdf, c_.x, c_.y + 1, c_.z) * h_kern[1];
+            return clamped_index(c_.x, c_.y - 1, c_.z) * h_kern[0] +
+                   clamped_index(c_.x, c_.y + 1, c_.z) * h_kern[1];
         case 2:
-            return index(sdf, c_.x, c_.y, c_.z - 1) * h_kern[0] +
-                   index(sdf, c_.x, c_.y, c_.z + 1) * h_kern[1];
+            return clamped_index(c_.x, c_.y, c_.z - 1) * h_kern[0] +
+                   clamped_index(c_.x, c_.y, c_.z + 1) * h_kern[1];
         default:
             assert(false);
             return -1.0f;
@@ -178,7 +192,7 @@ typedef struct {
     float3 ray_pos;
     float3 ray_vec;
     float3 origin;
-
+    
     float step;
 } chk;
 
@@ -297,7 +311,7 @@ __device__ float3 forward_pass(int x,
     ch.ray_pos = make_float3(0.0f, 0.0f, 0.0f);
     ch.ray_vec = make_float3(0.0f, 0.0f, 0.0f);
     ch.origin = make_float3(0.0f, 0.0f, 0.0f);
-
+    
     ch.step = 1.0f / 100.0f;
     
     const float u_s = 1.0f;
@@ -314,7 +328,7 @@ __device__ float3 forward_pass(int x,
                                        1.0f);
         // on iteration tr, because the pos was from iteration tr
         float ds = to_render_dist(ch.dist[tr]);
-
+        
         float step = ch.step;
         //float step = 1.0f / 100.0f;
         //float step = ds;
@@ -375,7 +389,7 @@ void backwards_pass(
     // is (0, 0, 0)
     cuda_array<int3, 3> sdf_pos;
     int3 sdf_pos_data[4][4][4];
-    size_t sdf_pos_dims[3] = {2, 2, 2};
+    size_t sdf_pos_dims[3] = {4, 4, 4};
     assign(&sdf_pos, (int3*) sdf_pos_data, sdf_pos_dims);
     
     // reset each iteration
@@ -444,6 +458,13 @@ void backwards_pass(
                     // sdf_location gives us the location of the ray evaluation
                     // in grid space
                     int3 sdf_location = index_off(&sdf_pos, i, j, k, 1);
+                    
+                    /*assert(sdf_location.x >= 0);
+                    assert(sdf_location.x < sdf_shape.x);
+                    assert(sdf_location.y >= 0);
+                    assert(sdf_location.y < sdf_shape.y);
+                    assert(sdf_location.z >= 0);
+                    assert(sdf_location.z < sdf_shape.z);*/
                     
                     // dTrilinear/dSDF(i, j, k) represents the derivative of the
                     // trilinear interpolation of the SDF at the location ijk
@@ -522,17 +543,17 @@ void backwards_pass(
                      *
                      * We can rewrite dvs_{t + 1} as c_1 * dOpc_t1/dSDF + c_2 * dvs_t1/dSDF. c_1 starts out as zero on
                      * the first iteration, but by the second iteration it is equal to t2. (and c_2 is always 1)
-                     * 
+                     *
                      **/
                     
                     float3 drops_out_vs = t1 * g_d_d + t3 * scattering_d + t4 * intensity_d;
                     float3 dopc_contribution = opc_accumulator * (g_d_d * ch.step);
                     float3 dvsdSDF = drops_out_vs + dopc_contribution;
                     opc_accumulator += t2;
-
+                    
                     /**
                      * Now that we have dvs/dSDF, we need to compute dLoss/dSDF
-                     * 
+                     *
                      * 1/n * \sum_{i=0}^{n} (y().i - vs(SDF).i)^2
                      *
                      * and the derivative is
@@ -542,8 +563,9 @@ void backwards_pass(
                     
                     // divide by width * height?
                     float3 target = make_float3(1.0f, 1.0f, 1.0f);
-                    float dLossdSDF_ijk = (2.0f / 3.0f) * norm_sq((target - vs_t1) * dvsdSDF);
-                    
+                    float dLossdSDF_ijk = (2.0f / 3.0f) * norm_sq((target - vs_t1) * -1.0f *
+                                          dvsdSDF);
+                                          
                     atomicAdd(&index(dLossdSDF, sdf_location.x, sdf_location.y, sdf_location.z),
                               dLossdSDF_ijk);
                 }
@@ -825,14 +847,13 @@ void trace() {
     for (int i = 0; i < 64; i++) {
         for (int j = 0; j < 64; j++) {
             for (int k = 0; k < 64; k++) {
-                std::cout << index(dloss_dsdf_host, i, j, k) << "\t";
+                //printf("%0.2f\t", index(dloss_dsdf_host, i, j, k));
             }
-            std::cout << std::endl;
+            //std::cout << std::endl;
         }
-        std::cout << std::endl;
+        //std::cout << std::endl;
     }
     
-    print<float>(projection_host);
     write_img("forward_cuda.bmp", forward_host);
 }
 
