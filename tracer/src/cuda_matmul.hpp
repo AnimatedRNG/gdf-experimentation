@@ -149,7 +149,7 @@ float example_sphere(float x, float y, float z) {
     return sqrtf(xi * xi + yi * yi + zi * zi) - 3.0f;
 }
 
-template <typename T>
+/*template <typename T>
 __device__ __host__ void fill(cuda_array<T, 2>* arr, const T& val) {
     for (int j = 0; j < arr->shape[1]; j++) {
         for (int i = 0; i < arr->shape[0]; i++) {
@@ -166,6 +166,13 @@ __device__ __host__ void fill(cuda_array<T, 3>* arr, const T& val) {
                 index(arr, i, j, k) = val;
             }
         }
+    }
+}*/
+
+template <typename T, size_t N>
+__device__ __host__ void fill(cuda_array<T, N>* arr, const T& val) {
+    for (int i = 0; i < arr->num_elements; i++) {
+        arr->data[i] = val;
     }
 }
 
@@ -214,14 +221,23 @@ __host__ T* to_device(const cuda_array<T, N>* arr, size_t** shape) {
 }
 
 template <typename T, size_t N>
-__host__ void to_host(T* arr, cuda_array<T, N>* host) {
+__host__ void zero(cuda_array<T, N>* host, T* device, T zero_val) {
+    fill(host, zero_val);
+    cudaMemcpy(device, host->data, host->num_elements * sizeof(T),
+               cudaMemcpyHostToDevice);
+}
+
+template <typename T, size_t N>
+__host__ void to_host(T* arr, cuda_array<T, N>* host, bool delete_device_buffer=false) {
     std::cout << "copying " << host->num_elements << " to host" << std::endl;
 
     int ret = cudaMemcpy(host->data, arr,
                          host->num_elements * sizeof(T),
                          cudaMemcpyDeviceToHost);
     std::cout << "ret " << ret << std::endl;
-    cudaFree((void*) arr);
+    if (delete_device_buffer) {
+        cudaFree((void*) arr);
+    }
 }
 
 // from MESA GLU

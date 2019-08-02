@@ -872,9 +872,9 @@ void trace() {
     
     dim3 blocks(grid_size_x, grid_size_y);
     dim3 threads(block_size, block_size);
-
+    
     auto start = std::chrono::steady_clock::now();
-
+    
     render <<< blocks, threads, 0 >>> (projection_device,
                                        view_device,
                                        transform_device,
@@ -882,7 +882,7 @@ void trace() {
                                        target_sdf_device, target_n_matrix_device,
                                        target_normals_device,
                                        p0_device, p1_device,
-
+                                       
                                        // dummy input
                                        forward_device,
                                        
@@ -897,80 +897,89 @@ void trace() {
                                        dloss_dsdf_device,
                                        dloss_dtransform_device
                                       );
-
+                                      
     cudaThreadSynchronize();
-
+    
     auto end = std::chrono::steady_clock::now();
-
+    
     auto diff = end - start;
-
+    
     std::cout << "Rendered target image in "
               << std::chrono::duration <float, std::milli> (diff).count()
               << " ms"
               << std::endl << std::endl;
     
-    start = std::chrono::steady_clock::now();
-    
-    render <<< blocks, threads, 0 >>> (projection_device,
-                                       view_device,
-                                       transform_device,
-                                       
-                                       model_sdf_device, model_n_matrix_device,
-                                       model_normals_device,
-                                       p0_device, p1_device,
-                                       
-                                       target_device,
-                                       
-                                       width, height,
-                                       
-                                       // do both the forwards and the backwards pass
-                                       false,
-                                       
-                                       // outputs
-                                       loss_device,
-                                       forward_device,
-                                       dloss_dsdf_device,
-                                       dloss_dtransform_device
-                                      );
-    cudaThreadSynchronize();
-    
-    end = std::chrono::steady_clock::now();
-    
-    diff = end - start;
-    
-    std::cout << "Rendered model image and performed backwards pass in "
-              << std::chrono::duration <float, std::milli> (diff).count()
-              << " ms"
-              << std::endl << std::endl;
-              
-    to_host<float, 1>(loss_device, loss_host);
-    to_host<float, 3>(forward_device, forward_host);
     to_host<float, 3>(target_device, target_host);
-    to_host<float, 3>(dloss_dsdf_device, dloss_dsdf_host);
-    
-    std::cout << "loss " << index(loss_host, 0) << std::endl;
-    
-    for (int i = 0; i < model_n_matrix[0]; i++) {
-        for (int j = 0; j < model_n_matrix[0]; j++) {
-            for (int k = 0; k < model_n_matrix[0]; k++) {
-                printf("%0.2f\t", index(dloss_dsdf_host, i, j, k));
-            }
-            std::cout << std::endl;
-        }
-        std::cout << std::endl;
-        std::cout << "SDF: " << std::endl;
-    
-        for (int j = 0; j < model_n_matrix[0]; j++) {
-            for (int k = 0; k < model_n_matrix[0]; k++) {
-                printf("%0.2f\t", index(model_sdf_host, i, j, k));
-            }
-            std::cout << std::endl;
-        }
-        std::cout << std::endl;
-    }
-
     write_img("target_cuda.bmp", target_host);
-    write_img("forward_cuda.bmp", forward_host);
+    
+    for (int i = 0; i < 100; i++) {
+        start = std::chrono::steady_clock::now();
+        render <<< blocks, threads, 0 >>> (projection_device,
+                                           view_device,
+                                           transform_device,
+                                           
+                                           model_sdf_device, model_n_matrix_device,
+                                           model_normals_device,
+                                           p0_device, p1_device,
+                                           
+                                           target_device,
+                                           
+                                           width, height,
+                                           
+                                           // do both the forwards and the backwards pass
+                                           false,
+                                           
+                                           // outputs
+                                           loss_device,
+                                           forward_device,
+                                           dloss_dsdf_device,
+                                           dloss_dtransform_device
+                                          );
+        cudaThreadSynchronize();
+        
+        end = std::chrono::steady_clock::now();
+        
+        diff = end - start;
+        
+        std::cout << "Rendered model image and performed backwards pass in "
+                  << std::chrono::duration <float, std::milli> (diff).count()
+                  << " ms"
+                  << std::endl << std::endl;
+                  
+        to_host<float, 1>(loss_device, loss_host);
+        to_host<float, 3>(forward_device, forward_host);
+        to_host<float, 3>(dloss_dsdf_device, dloss_dsdf_host);
+        
+        std::cout << "loss " << index(loss_host, 0) << std::endl;
+
+        write_img("forward_cuda.bmp", forward_host);
+
+        // zero the loss/gradient/forward
+        zero(loss_host, loss_device, 0.0f);
+        zero(forward_host, forward_device, 0.0f);
+        zero(dloss_dsdf_host, dloss_dsdf_device, 0.0f);
+        
+        /*
+        for (int i = 0; i < model_n_matrix[0]; i++) {
+            for (int j = 0; j < model_n_matrix[0]; j++) {
+                for (int k = 0; k < model_n_matrix[0]; k++) {
+                    printf("%0.2f\t", index(dloss_dsdf_host, i, j, k));
+                }
+                std::cout << std::endl;
+            }
+            std::cout << std::endl;
+            std::cout << "SDF: " << std::endl;
+        
+            for (int j = 0; j < model_n_matrix[0]; j++) {
+                for (int k = 0; k < model_n_matrix[0]; k++) {
+                    printf("%0.2f\t", index(model_sdf_host, i, j, k));
+                }
+                std::cout << std::endl;
+            }
+            std::cout << std::endl;
+        }
+        */
+    }
 }
 
 int main() {
