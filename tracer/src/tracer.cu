@@ -17,7 +17,7 @@
 
 #define ITERATIONS 1400
 
-#define DEBUG_SDF
+//#define DEBUG_SDF
 
 #define SQUARE(a) (a * a)
 
@@ -283,7 +283,7 @@ __device__ inline float to_render_dist(float dist, float scale_factor = 1.0f) {
     return scale_factor / (10.0f + (1.0f - clamp(abs(dist), 0.0f, 1.0f)) * 90.0f);
 }
 
-__device__ inline float normal_pdf(float x, float sigma = 1e-2f,
+__device__ inline float normal_pdf(float x, float sigma = 1e-2,
                                    float mean = 0.0f) {
     return (1.0f / sqrtf(2.0f * (float) M_PI * sigma * sigma)) *
            expf((x - mean) * (x - mean) / (-2.0f * sigma * sigma));
@@ -299,19 +299,19 @@ __device__ inline float normal_pdf_rectified(float x, float sigma = 1e-2f,
 }
 
 __device__ inline float normal_pdf_d(float x, float x_d,
-                                     float sigma = 1e-2f,
+                                     float sigma = 1e-1f,
                                      float mean = 0.0f) {
-    return -0.5f * sqrtf(2.0f) * (-1.0f * mean + x) *
-           expf((-0.5f * SQUARE(-1.0f * mean + x)) / SQUARE(sigma)) *
-           x_d;
+    return (-1.0f / sqrtf(2.0f * (float) M_PI * sigma * sigma)) * ((
+                -1.0f * mean + x) / (sigma * sigma)) *
+        expf((-0.5f * SQUARE(-1.0f * mean + x)) / SQUARE(sigma)) * x_d;
 }
 
 __device__ inline float normal_pdf_rectified_d(
     float x,
     float x_d,
-    float sigma = 1e-2f,
+    float sigma = 1e-1f,
     float mean = 0.0f) {
-    return normal_pdf_d(relu(x), x_d, sigma, mean) * (step_f(x) * x_d);
+    return normal_pdf_d(relu(x), x_d, sigma, mean) * step_f(x);
 }
 
 __device__ float3 forward_pass(int x,
@@ -977,12 +977,12 @@ void trace() {
         std::cout << "loss " << index(loss_host, 0) << std::endl;
         
         write_img("forward_cuda.bmp", forward_host);
-
+        
         float gradient_mag = 0.0f;
         for (int i = 0; i < model_n_matrix[0]; i++) {
             for (int j = 0; j < model_n_matrix[0]; j++) {
                 for (int k = 0; k < model_n_matrix[0]; k++) {
-                    gradient_mag += index(dloss_dsdf_host, i, j, k);
+                    gradient_mag += abs(index(dloss_dsdf_host, i, j, k));
                 }
             }
         }
