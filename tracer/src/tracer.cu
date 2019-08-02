@@ -15,7 +15,9 @@
 #include "cuda_trilinear.hpp"
 #include "adam.hpp"
 
-#define ITERATIONS 900
+#define ITERATIONS 1400
+
+//#define DEBUG_SDF
 
 #define SQUARE(a) (a * a)
 
@@ -296,6 +298,22 @@ __device__ inline float normal_pdf_rectified(float x, float sigma = 1e-2f,
     return normal_pdf(relu(x), sigma, mean);
 }
 
+__device__ inline float normal_pdf_d(float x, float x_d,
+                                     float sigma = 1e-7f,
+                                     float mean = 0.0f) {
+    return -0.5f * sqrtf(2.0f) * (-1.0f * mean + x) *
+        expf((-0.5f * SQUARE(-1.0f * mean + x)) / SQUARE(sigma)) *
+        x_d;
+}
+
+__device__ inline float normal_pdf_rectified_d(
+        float x,
+        float x_d,                               
+        float sigma = 1e-2f,
+        float mean = 0.0f) {
+    return normal_pdf_d(relu(x), x_d, sigma, mean) * (step_f(x) * x_d);
+}
+
 __device__ float3 forward_pass(int x,
                                int y,
                                cuda_array<float, 3>* sdf,
@@ -510,15 +528,8 @@ void backwards_pass(
                                                                           sigma  \/ pi sigma
                     
                     */
-                    // TODO: Move these somewhere else?
-                    float mean = 0.0f;
-                    float sigma = 1e-2f;
-                    
                     // represents the derivative of g_d
-                    float g_d_d = (-(1.0f / sqrtf(2.0f)) * (-1.0f * mean + max(0.0f, dist)) *
-                                   exp((-0.5f * SQUARE(-1.0f * mean + max(0.0f, dist))) / (SQUARE(sigma))) *
-                                   step_f(dist) * (dtrilinear_sdf_ijk)) /
-                                  (SQUARE(sigma) * sqrtf(((float) M_PI) * SQUARE(sigma)));
+                    float g_d_d = normal_pdf_rectified_d(dist, dtrilinear_sdf_ijk);
                                   
                     // represents dScattering/dSDF
                     float scattering_d = g_d_d * u_s;
@@ -528,7 +539,7 @@ void backwards_pass(
                       dnormalstrilinear_sdf_ijk);*/
                     // set to zero for now -- represents constant intensity (so derivative is 0)
                     float intensity_d = 0.0f;
-                                                 
+                    
                     /**
                      * dvs_{t + 1}/dSDF
                      *
@@ -578,12 +589,12 @@ void backwards_pass(
                      */
                     
                     // divide by width * height?
-                    float dLossdSDF_ijk = (2.0f / (3.0f)) * norm_sq((target_color - ch.volumetric_shaded[ITERATIONS]) * -1.0f *
+                    float dLossdSDF_ijk = (2.0f / (3.0f)) * norm_sq((target_color - vs_t1) * -1.0f *
                                           dvsdSDF);
                                           
                     if (!oob) {
                         atomicAdd(&index(dLossdSDF, sdf_location.x, sdf_location.y, sdf_location.z),
-                                  dLossdSDF_ijk);
+                                  1.0f);
                     }
                 }
             }
@@ -965,7 +976,8 @@ void trace() {
         
         write_img("forward_cuda.bmp", forward_host);
         
-        /*for (int i = 0; i < model_n_matrix[0]; i++) {
+#ifdef DEBUG_SDF
+        for (int i = 0; i < model_n_matrix[0]; i++) {
             for (int j = 0; j < model_n_matrix[0]; j++) {
                 for (int k = 0; k < model_n_matrix[0]; k++) {
                     printf("%0.2f\t", index(dloss_dsdf_host, i, j, k));
@@ -974,7 +986,7 @@ void trace() {
             }
             std::cout << std::endl;
             std::cout << "SDF: " << std::endl;
-        
+            
             for (int j = 0; j < model_n_matrix[0]; j++) {
                 for (int k = 0; k < model_n_matrix[0]; k++) {
                     printf("%0.2f\t", index(model_sdf_host, i, j, k));
@@ -982,7 +994,8 @@ void trace() {
                 std::cout << std::endl;
             }
             std::cout << std::endl;
-        }*/
+        }
+#endif
         
         optim.step();
         
