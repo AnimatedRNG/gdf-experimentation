@@ -372,11 +372,13 @@ void backwards_pass(
     uint3 sdf_shape,
     cuda_array<float3, 3>* normals,
     
+    cuda_array<float, 3>* target,
     
     cuda_array<float, 2>* projection,
     cuda_array<float, 2>* view,
     cuda_array<float, 2>* ray_transform,
     
+    cuda_array<float, 1>* loss,
     cuda_array<float, 3>* dLossdSDF,
     cuda_array<float, 2>* dLossdTransform,
     
@@ -384,6 +386,12 @@ void backwards_pass(
     int height,
     chk& ch
 ) {
+    float3 target_color = make_float3(index(target, 0, x, y),
+                                      index(target, 1, x, y),
+                                      index(target, 2, x, y));
+    atomicAdd(&index(loss, 0),
+              length(target_color - ch.volumetric_shaded[ITERATIONS]));
+              
     // reset each iteration
     // represents the derivative of trilinear w.r.t the SDF
     cuda_array<float, 3> dsdf;
@@ -564,8 +572,7 @@ void backwards_pass(
                      */
                     
                     // divide by width * height?
-                    float3 target = make_float3(1.0f, 1.0f, 1.0f);
-                    float dLossdSDF_ijk = (2.0f / (3.0f)) * norm_sq((target - vs_t1) * -1.0f *
+                    float dLossdSDF_ijk = (2.0f / (3.0f)) * norm_sq((target_color - vs_t1) * -1.0f *
                                           dvsdSDF);
                                           
                     if (!oob) {
@@ -590,6 +597,8 @@ void render(float* projection_matrix_,
             size_t width,
             size_t height,
             
+            bool only_forwards,
+            
             float* loss_,
             float* forward_,
             float* dLossdSDF_,
@@ -602,6 +611,7 @@ void render(float* projection_matrix_,
     }
     
     size_t mat4_size[2] = {4, 4};
+    size_t single_dim[1] = {1};
     size_t vec3_size[1] = {3};
     size_t image_size[3] = {3, width, height};
     
@@ -644,6 +654,11 @@ void render(float* projection_matrix_,
                      target_,
                      image_size);
                      
+    cuda_array<float, 1> loss;
+    assign<float, 1>(&loss,
+                     loss_,
+                     single_dim);
+                     
     cuda_array<float, 3> forward;
     assign<float, 3>(&forward,
                      forward_,
@@ -674,16 +689,17 @@ void render(float* projection_matrix_,
                             &projection, &view, &transform,
                             width, height, ch);
                             
-    backwards_pass(i, j,
-                   &sdf, p0_p, p1_p, sdf_shape_p,
-                   &normals,
-                   &projection, &view, &transform,
-                   &dLossdSDF, &dLossdTransform,
-                   width, height, ch);
-                   
-    //index(&forward, 0, i, j) = index(&dLossdSDF, clamp(i / 64, 0, 64), i % 64, j % 64) / 10000.0f;
-    //index(&forward, 1, i, j) = index(&dLossdSDF, clamp(i / 64, 0, 64), i % 64, j % 64) / 10000.0f;
-    //index(&forward, 2, i, j) = index(&dLossdSDF, clamp(i / 64, 0, 64), i % 64, j % 64) / 10000.0f;
+    if (!only_forwards) {
+        backwards_pass(i, j,
+                       &sdf, p0_p, p1_p, sdf_shape_p,
+                       &normals,
+                       &target,
+                       &projection, &view, &transform,
+                       &loss,
+                       &dLossdSDF, &dLossdTransform,
+                       width, height, ch);
+    }
+    
     index(&forward, 0, i, j) = c.x;
     index(&forward, 1, i, j) = c.y;
     index(&forward, 2, i, j) = c.z;
@@ -709,7 +725,7 @@ void trace() {
     };
     
     const float transform_matrix[4][4] = {
-        {1.0f, 0.0f, 0.0f, -0.4f},
+        {1.0f, 0.0f, 0.0f, 0.0f},
         {0.0, 1.0f, 0.0f, 0.0f},
         {0.0f, 0.0f, 1.0f, 0.0f},
         {0.0f, 0.0f, 0.0f, 1.0}
@@ -795,6 +811,7 @@ void trace() {
     float* target_device = to_device<float, 3>(target_host, &img_dims_device);
     
     cuda_array<float, 1>* loss_host = create<float, 1>(single_dim);
+    index(loss_host, 0) = 0.0f;
     float* loss_device = to_device<float, 1>(loss_host, &single_dim_device);
     
     cuda_array<float, 3>* forward_host = create<float, 3>(img_dims);
@@ -854,8 +871,44 @@ void trace() {
     
     dim3 blocks(grid_size_x, grid_size_y);
     dim3 threads(block_size, block_size);
-    
+
     auto start = std::chrono::steady_clock::now();
+
+    render <<< blocks, threads, 0 >>> (projection_device,
+                                       view_device,
+                                       transform_device,
+                                       
+                                       target_sdf_device, target_n_matrix_device,
+                                       target_normals_device,
+                                       p0_device, p1_device,
+
+                                       // dummy input
+                                       forward_device,
+                                       
+                                       width, height,
+                                       
+                                       // only do forwards pass
+                                       true,
+                                       
+                                       // outputs
+                                       loss_device,
+                                       target_device,
+                                       dloss_dsdf_device,
+                                       dloss_dtransform_device
+                                      );
+
+    cudaThreadSynchronize();
+
+    auto end = std::chrono::steady_clock::now();
+
+    auto diff = end - start;
+
+    std::cout << "Rendered target image in "
+              << std::chrono::duration <float, std::milli> (diff).count()
+              << " ms"
+              << std::endl << std::endl;
+    
+    start = std::chrono::steady_clock::now();
     
     render <<< blocks, threads, 0 >>> (projection_device,
                                        view_device,
@@ -869,6 +922,9 @@ void trace() {
                                        
                                        width, height,
                                        
+                                       // do both the forwards and the backwards pass
+                                       false,
+                                       
                                        // outputs
                                        loss_device,
                                        forward_device,
@@ -877,17 +933,21 @@ void trace() {
                                       );
     cudaThreadSynchronize();
     
-    auto end = std::chrono::steady_clock::now();
+    end = std::chrono::steady_clock::now();
     
-    auto diff = end - start;
+    diff = end - start;
     
-    std::cout << "Rendered image in "
+    std::cout << "Rendered model image and performed backwards pass in "
               << std::chrono::duration <float, std::milli> (diff).count()
               << " ms"
               << std::endl << std::endl;
               
+    to_host<float, 1>(loss_device, loss_host);
     to_host<float, 3>(forward_device, forward_host);
+    to_host<float, 3>(target_device, target_host);
     to_host<float, 3>(dloss_dsdf_device, dloss_dsdf_host);
+    
+    std::cout << "loss " << index(loss_host, 0) << std::endl;
     
     for (int i = 0; i < model_n_matrix[0]; i++) {
         for (int j = 0; j < model_n_matrix[0]; j++) {
@@ -898,7 +958,7 @@ void trace() {
         }
         std::cout << std::endl;
         std::cout << "SDF: " << std::endl;
-        
+    
         for (int j = 0; j < model_n_matrix[0]; j++) {
             for (int k = 0; k < model_n_matrix[0]; k++) {
                 printf("%0.2f\t", index(model_sdf_host, i, j, k));
@@ -907,7 +967,8 @@ void trace() {
         }
         std::cout << std::endl;
     }
-    
+
+    write_img("target_cuda.bmp", target_host);
     write_img("forward_cuda.bmp", forward_host);
 }
 
