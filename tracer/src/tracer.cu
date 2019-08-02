@@ -241,7 +241,9 @@ __device__ float3 shade(float3 position, float3 origin, float3 normal,
                                      
     float3 total_light = top_light + self_light;
     
-    return total_light;
+    //return total_light;
+    // I disabled the shading for now, the image has constant intensity
+    return make_float3(1.0f, 1.0f, 1.0f);
 }
 
 __device__ float3 light_source_d(float3 light_color,
@@ -392,7 +394,7 @@ void backwards_pass(
                                       index(target, 1, x, y),
                                       index(target, 2, x, y));
     atomicAdd(&index(loss, 0),
-              length(target_color - ch.volumetric_shaded[ITERATIONS]));
+              norm_sq(target_color - ch.volumetric_shaded[ITERATIONS]));
               
     // reset each iteration
     // represents the derivative of trilinear w.r.t the SDF
@@ -522,8 +524,10 @@ void backwards_pass(
                     float scattering_d = g_d_d * u_s;
                     
                     // represents dIntensity/dSDF
-                    float3 intensity_d = shade_d(pos, ch.origin, ch.normal[tr],
-                                                 dnormalstrilinear_sdf_ijk);
+                    /*float3 intensity_d = shade_d(pos, ch.origin, ch.normal[tr],
+                      dnormalstrilinear_sdf_ijk);*/
+                    // set to zero for now -- represents constant intensity (so derivative is 0)
+                    float intensity_d = 0.0f;
                                                  
                     /**
                      * dvs_{t + 1}/dSDF
@@ -574,7 +578,7 @@ void backwards_pass(
                      */
                     
                     // divide by width * height?
-                    float dLossdSDF_ijk = (2.0f / (3.0f)) * norm_sq((target_color - vs_t1) * -1.0f *
+                    float dLossdSDF_ijk = (2.0f / (3.0f)) * norm_sq((target_color - ch.volumetric_shaded[ITERATIONS]) * -1.0f *
                                           dvsdSDF);
                                           
                     if (!oob) {
@@ -741,8 +745,8 @@ void trace() {
         4.0f, 4.0f, 4.0f
     };
     
-    const int width = 500;
-    const int height = 500;
+    const int width = 200;
+    const int height = 200;
     
     size_t mat4_dims[2] = {4, 4};
     size_t vec3_dims[1] = {3};
@@ -917,7 +921,9 @@ void trace() {
                                   model_sdf_host, dloss_dsdf_host,
                                   0.0f);
                                   
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 10000000; i++) {
+        std::cout << "starting epoch " << i << std::endl;
+        
         start = std::chrono::steady_clock::now();
         render <<< blocks, threads, 0 >>> (projection_device,
                                            view_device,
