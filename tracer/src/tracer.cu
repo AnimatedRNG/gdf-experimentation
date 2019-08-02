@@ -13,6 +13,7 @@
 #include "cuda_io.hpp"
 #include "cuda_matmul.hpp"
 #include "cuda_trilinear.hpp"
+#include "adam.hpp"
 
 #define ITERATIONS 900
 
@@ -908,10 +909,14 @@ void trace() {
               << std::chrono::duration <float, std::milli> (diff).count()
               << " ms"
               << std::endl << std::endl;
-    
+              
     to_host<float, 3>(target_device, target_host);
     write_img("target_cuda.bmp", target_host);
     
+    AdamOptimizer<float, 3> optim(model_sdf_device, dloss_dsdf_device,
+                                  model_sdf_host, dloss_dsdf_host,
+                                  0.0f);
+                                  
     for (int i = 0; i < 100; i++) {
         start = std::chrono::steady_clock::now();
         render <<< blocks, threads, 0 >>> (projection_device,
@@ -951,16 +956,10 @@ void trace() {
         to_host<float, 3>(dloss_dsdf_device, dloss_dsdf_host);
         
         std::cout << "loss " << index(loss_host, 0) << std::endl;
-
-        write_img("forward_cuda.bmp", forward_host);
-
-        // zero the loss/gradient/forward
-        zero(loss_host, loss_device, 0.0f);
-        zero(forward_host, forward_device, 0.0f);
-        zero(dloss_dsdf_host, dloss_dsdf_device, 0.0f);
         
-        /*
-        for (int i = 0; i < model_n_matrix[0]; i++) {
+        write_img("forward_cuda.bmp", forward_host);
+        
+        /*for (int i = 0; i < model_n_matrix[0]; i++) {
             for (int j = 0; j < model_n_matrix[0]; j++) {
                 for (int k = 0; k < model_n_matrix[0]; k++) {
                     printf("%0.2f\t", index(dloss_dsdf_host, i, j, k));
@@ -977,8 +976,14 @@ void trace() {
                 std::cout << std::endl;
             }
             std::cout << std::endl;
-        }
-        */
+        }*/
+        
+        optim.step();
+        
+        // zero the loss/gradient/forward
+        zero(loss_host, loss_device, 0.0f);
+        zero(forward_host, forward_device, 0.0f);
+        zero(dloss_dsdf_host, dloss_dsdf_device, 0.0f);
     }
 }
 

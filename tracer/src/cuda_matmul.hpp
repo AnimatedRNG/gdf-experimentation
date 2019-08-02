@@ -142,7 +142,7 @@ __host__ __device__ T& index(cuda_array<T, 4>* arr,
                        + l * arr->stride[3]];
 }
 
-float example_sphere(float x, float y, float z) {
+inline float example_sphere(float x, float y, float z) {
     float xi = x;
     float yi = y;
     float zi = z;
@@ -241,7 +241,7 @@ __host__ void to_host(T* arr, cuda_array<T, N>* host, bool delete_device_buffer=
 }
 
 // from MESA GLU
-__host__ __device__ bool invert_matrix(float* m, float* invOut) {
+inline __device__ bool invert_matrix(float* m, float* invOut) {
     float inv[16], det;
     int i;
 
