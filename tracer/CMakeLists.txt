@@ -95,6 +95,11 @@ set_target_properties(tracer_cuda PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 set_property(TARGET tracer_cuda PROPERTY CUDA_STANDARD 11)
 target_link_libraries(tracer_cuda adam_cuda)
 
+cuda_add_executable(adam_cuda_test src/adam.cu)
+target_include_directories(adam_cuda_test PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}")
+set_property(TARGET adam_cuda_test PROPERTY CUDA_STANDARD 11)
+set_target_properties(adam_cuda_test PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+
 add_executable(optimizer_test src/optimizer_test.cpp)
 set_target_properties(optimizer_test PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
 target_include_directories(optimizer_test PRIVATE "${HALIDE_INCLUDE_DIR}" "${HALIDE_TOOLS_DIR}")
