@@ -293,7 +293,7 @@ __device__ inline float relu(float a) {
     return max(a, 0.0f);
 }
 
-__device__ inline float normal_pdf_rectified(float x, float sigma = 1e-2f,
+__device__ inline float normal_pdf_rectified(float x, float sigma = 1e-1f,
         float mean = 0.0f) {
     return normal_pdf(relu(x), sigma, mean);
 }
@@ -303,7 +303,7 @@ __device__ inline float normal_pdf_d(float x, float x_d,
                                      float mean = 0.0f) {
     return (-1.0f / sqrtf(2.0f * (float) M_PI * sigma * sigma)) * ((
                 -1.0f * mean + x) / (sigma * sigma)) *
-        expf((-0.5f * SQUARE(-1.0f * mean + x)) / SQUARE(sigma)) * x_d;
+           expf((-0.5f * SQUARE(-1.0f * mean + x)) / SQUARE(sigma)) * x_d;
 }
 
 __device__ inline float normal_pdf_rectified_d(
@@ -590,8 +590,14 @@ void backwards_pass(
                      */
                     
                     // divide by width * height?
-                    float dLossdSDF_ijk = (2.0f / (3.0f)) * norm_sq((target_color - vs_t1) * -1.0f *
-                                          dvsdSDF);
+                    //float dLossdSDF_ijk = (2.0f / (3.0f)) * norm_sq((target_color - vs_t1) * -1.0f *
+                    //                      dvsdSDF);
+                    float dLossdSDF_ijk = (-2.0f / (3.0f)) *
+                                          (
+                                              (target_color.x - vs_t1.x) * dvsdSDF.x +
+                                              (target_color.y - vs_t1.y) * dvsdSDF.y +
+                                              (target_color.z - vs_t1.z) * dvsdSDF.z
+                                          );
                                           
                     if (!oob) {
                         atomicAdd(&index(dLossdSDF, sdf_location.x, sdf_location.y, sdf_location.z),
@@ -934,8 +940,8 @@ void trace() {
                                   model_sdf_host, dloss_dsdf_host,
                                   0.0f);
                                   
-    for (int i = 0; i < 10000; i++) {
-        std::cout << "starting epoch " << i << std::endl;
+    for (int epoch = 0; epoch < 10000; epoch++) {
+        std::cout << "starting epoch " << epoch << std::endl;
         
         start = std::chrono::steady_clock::now();
         render <<< blocks, threads, 0 >>> (projection_device,
