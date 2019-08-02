@@ -17,7 +17,7 @@
 
 #define ITERATIONS 1400
 
-//#define DEBUG_SDF
+#define DEBUG_SDF
 
 #define SQUARE(a) (a * a)
 
@@ -283,7 +283,7 @@ __device__ inline float to_render_dist(float dist, float scale_factor = 1.0f) {
     return scale_factor / (10.0f + (1.0f - clamp(abs(dist), 0.0f, 1.0f)) * 90.0f);
 }
 
-__device__ inline float normal_pdf(float x, float sigma = 1e-7f,
+__device__ inline float normal_pdf(float x, float sigma = 1e-2f,
                                    float mean = 0.0f) {
     return (1.0f / sqrtf(2.0f * (float) M_PI * sigma * sigma)) *
            expf((x - mean) * (x - mean) / (-2.0f * sigma * sigma));
@@ -299,18 +299,18 @@ __device__ inline float normal_pdf_rectified(float x, float sigma = 1e-2f,
 }
 
 __device__ inline float normal_pdf_d(float x, float x_d,
-                                     float sigma = 1e-7f,
+                                     float sigma = 1e-2f,
                                      float mean = 0.0f) {
     return -0.5f * sqrtf(2.0f) * (-1.0f * mean + x) *
-        expf((-0.5f * SQUARE(-1.0f * mean + x)) / SQUARE(sigma)) *
-        x_d;
+           expf((-0.5f * SQUARE(-1.0f * mean + x)) / SQUARE(sigma)) *
+           x_d;
 }
 
 __device__ inline float normal_pdf_rectified_d(
-        float x,
-        float x_d,                               
-        float sigma = 1e-2f,
-        float mean = 0.0f) {
+    float x,
+    float x_d,
+    float sigma = 1e-2f,
+    float mean = 0.0f) {
     return normal_pdf_d(relu(x), x_d, sigma, mean) * (step_f(x) * x_d);
 }
 
@@ -380,6 +380,7 @@ __device__ float3 forward_pass(int x,
     }
     
     //return ch.intensity[ITERATIONS / 2];
+    //return make_float3(logf(ch.opc[ITERATIONS]) / 10.0f);
     return ch.volumetric_shaded[ITERATIONS];
     //return index(normals, x / (1000 / 64), y / (1000 / 64), 30);
 }
@@ -530,7 +531,7 @@ void backwards_pass(
                     */
                     // represents the derivative of g_d
                     float g_d_d = normal_pdf_rectified_d(dist, dtrilinear_sdf_ijk);
-                                  
+                    
                     // represents dScattering/dSDF
                     float scattering_d = g_d_d * u_s;
                     
@@ -594,7 +595,7 @@ void backwards_pass(
                                           
                     if (!oob) {
                         atomicAdd(&index(dLossdSDF, sdf_location.x, sdf_location.y, sdf_location.z),
-                                  1.0f);
+                                  dLossdSDF_ijk);
                     }
                 }
             }
@@ -915,6 +916,7 @@ void trace() {
                                       );
                                       
     cudaThreadSynchronize();
+    //zero(target_host, target_device, 0.0f);
     
     auto end = std::chrono::steady_clock::now();
     
@@ -932,7 +934,7 @@ void trace() {
                                   model_sdf_host, dloss_dsdf_host,
                                   0.0f);
                                   
-    for (int i = 0; i < 10000000; i++) {
+    for (int i = 0; i < 10000; i++) {
         std::cout << "starting epoch " << i << std::endl;
         
         start = std::chrono::steady_clock::now();
@@ -975,6 +977,16 @@ void trace() {
         std::cout << "loss " << index(loss_host, 0) << std::endl;
         
         write_img("forward_cuda.bmp", forward_host);
+
+        float gradient_mag = 0.0f;
+        for (int i = 0; i < model_n_matrix[0]; i++) {
+            for (int j = 0; j < model_n_matrix[0]; j++) {
+                for (int k = 0; k < model_n_matrix[0]; k++) {
+                    gradient_mag += index(dloss_dsdf_host, i, j, k);
+                }
+            }
+        }
+        std::cout << "gradient_mag: " << gradient_mag << std::endl;
         
 #ifdef DEBUG_SDF
         for (int i = 0; i < model_n_matrix[0]; i++) {
