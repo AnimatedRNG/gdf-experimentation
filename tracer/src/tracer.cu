@@ -397,6 +397,14 @@ void backwards_pass(
     float3 dnormals_data[4][4][4];
     size_t dnormals_dims[3] = {4, 4, 4};
     assign(&dnormals, (float3*) dnormals_data, dnormals_dims);
+
+    // not reset each iteration
+    // represents the accumulation of the coefficient of opc
+    cuda_array<float3, 3> opc_accumulator;
+    float3 opc_accumulator_data[4][4][4];
+    size_t opc_accumulator_dims[3] = {4, 4, 4};
+    assign(&opc_accumulator, (float3*) opc_accumulator_data, opc_accumulator_dims);
+    fill(&opc_accumulator, make_float3(0.0f));
     
     // TODO: set these somewhere else
     const float u_s = 1.0f;
@@ -445,8 +453,6 @@ void backwards_pass(
         float3 t3 = ch.step * intensity * expf_k_opc1;
         float t4 = ch.step * scattering * expf_k_opc1;
         float t5 = 1.0f;
-        
-        float3 opc_accumulator = make_float3(0.0f, 0.0f, 0.0f);
         
         // the ijk coordinate system is centered at the ray evaluation position - 1
         for (int i = -1; i < 3; i++) {
@@ -540,9 +546,10 @@ void backwards_pass(
                      **/
                     
                     float3 drops_out_vs = t1 * g_d_d + t3 * scattering_d + t4 * intensity_d;
-                    float3 dopc_contribution = opc_accumulator * (g_d_d * ch.step);
+                    float3 dopc_contribution = index_off(&opc_accumulator, i, j, k, 1) * (g_d_d * ch.step);
                     float3 dvsdSDF = drops_out_vs + dopc_contribution;
-                    opc_accumulator += t2;
+                    //float3 dvsdSDF = dopc_contribution;
+                    index_off(&opc_accumulator, i, j, k, 1) = index_off(&opc_accumulator, i, j, k, 1) + t2;
                     
                     /**
                      * Now that we have dvs/dSDF, we need to compute dLoss/dSDF
@@ -700,7 +707,7 @@ void trace() {
     };
     
     const float transform_matrix[4][4] = {
-        {1.0f, 0.0f, 0.0f, 0.0f},
+        {1.0f, 0.0f, 0.0f, -0.4f},
         {0.0, 1.0f, 0.0f, 0.0f},
         {0.0f, 0.0f, 1.0f, 0.0f},
         {0.0f, 0.0f, 0.0f, 1.0}
@@ -807,7 +814,7 @@ void trace() {
             
     //cudaThreadSynchronize();
     
-    const size_t block_size = 16;
+    const size_t block_size = 8;
     const size_t grid_size_x = (int)(ceil((float) width / (float) block_size));
     const size_t grid_size_y = (int)(ceil((float) height / (float) block_size));
     
