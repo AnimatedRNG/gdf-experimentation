@@ -15,7 +15,7 @@
 #include "cuda_trilinear.hpp"
 #include "adam.hpp"
 
-#define ITERATIONS 1400
+#define ITERATIONS 2000
 
 //#define DEBUG_SDF
 
@@ -276,7 +276,9 @@ __device__ float3 shade_d(float3 position, float3 origin, float3 normal,
                                          
     float3 total_light_d = top_light_d + self_light_d;
     
-    return total_light_d;
+    //return total_light_d;
+
+    return make_float3(0.0f, 0.0f, 0.0f);
 }
 
 __device__ inline float to_render_dist(float dist, float scale_factor = 1.0f) {
@@ -293,7 +295,7 @@ __device__ inline float relu(float a) {
     return max(a, 0.0f);
 }
 
-__device__ inline float normal_pdf_rectified(float x, float sigma = 1e-1f,
+__device__ inline float normal_pdf_rectified(float x, float sigma = 1e-2f,
         float mean = 0.0f) {
     return normal_pdf(relu(x), sigma, mean);
 }
@@ -326,6 +328,8 @@ __device__ float3 forward_pass(int x,
                                cuda_array<float, 2>* projection,
                                cuda_array<float, 2>* view,
                                cuda_array<float, 2>* ray_transform,
+
+                               float sigma,
                                
                                int width,
                                int height,
@@ -335,7 +339,7 @@ __device__ float3 forward_pass(int x,
     ch.ray_vec = make_float3(0.0f, 0.0f, 0.0f);
     ch.origin = make_float3(0.0f, 0.0f, 0.0f);
     
-    ch.step = 1.0f / 100.0f;
+    ch.step = 1.0f / 200.0f;
     
     const float u_s = 1.0f;
     const float k = -1.0f;
@@ -361,7 +365,7 @@ __device__ float3 forward_pass(int x,
         ch.pos[tr + 1] = ch.pos[tr] + step * ch.ray_vec;
         
         // also on iteration tr
-        ch.g_d[tr] = normal_pdf_rectified(ch.dist[tr]);
+        ch.g_d[tr] = normal_pdf_rectified(ch.dist[tr], sigma);
         
         ch.normal[tr] = trilinear<float3>(normals, p0, p1,
                                           make_int3(sdf_shape),
@@ -400,6 +404,8 @@ void backwards_pass(
     cuda_array<float, 2>* projection,
     cuda_array<float, 2>* view,
     cuda_array<float, 2>* ray_transform,
+    
+    float sigma,
     
     cuda_array<float, 1>* loss,
     cuda_array<float, 3>* dLossdSDF,
@@ -530,16 +536,16 @@ void backwards_pass(
                     
                     */
                     // represents the derivative of g_d
-                    float g_d_d = normal_pdf_rectified_d(dist, dtrilinear_sdf_ijk);
+                    float g_d_d = normal_pdf_rectified_d(dist, dtrilinear_sdf_ijk, sigma);
                     
                     // represents dScattering/dSDF
                     float scattering_d = g_d_d * u_s;
                     
                     // represents dIntensity/dSDF
-                    /*float3 intensity_d = shade_d(pos, ch.origin, ch.normal[tr],
-                      dnormalstrilinear_sdf_ijk);*/
+                    float3 intensity_d = shade_d(pos, ch.origin, ch.normal[tr],
+                      dnormalstrilinear_sdf_ijk);
                     // set to zero for now -- represents constant intensity (so derivative is 0)
-                    float intensity_d = 0.0f;
+                    //float intensity_d = 0.0f;
                     
                     /**
                      * dvs_{t + 1}/dSDF
@@ -618,6 +624,7 @@ void render(float* projection_matrix_,
             float* p0_,
             float* p1_,
             float* target_,
+            float sigma,
             size_t width,
             size_t height,
             
@@ -711,6 +718,7 @@ void render(float* projection_matrix_,
                             &sdf, p0_p, p1_p, sdf_shape_p,
                             &normals,
                             &projection, &view, &transform,
+                            sigma,
                             width, height, ch);
                             
     if (!only_forwards) {
@@ -719,14 +727,19 @@ void render(float* projection_matrix_,
                        &normals,
                        &target,
                        &projection, &view, &transform,
+                       sigma,
                        &loss,
                        &dLossdSDF, &dLossdTransform,
                        width, height, ch);
     }
     
-    index(&forward, 0, i, j) = c.x;
+    /*index(&forward, 0, i, j) = c.x;
     index(&forward, 1, i, j) = c.y;
-    index(&forward, 2, i, j) = c.z;
+    index(&forward, 2, i, j) = c.z;*/
+
+    index(&forward, 0, i, j) = clamp(c.x, 0.0f, 1.0f);
+    index(&forward, 1, i, j) = clamp(c.y, 0.0f, 1.0f);
+    index(&forward, 2, i, j) = clamp(c.z, 0.0f, 1.0f);
 }
 
 void trace() {
@@ -908,6 +921,8 @@ void trace() {
                                        
                                        // dummy input
                                        forward_device,
+
+                                       1e-2f,
                                        
                                        width, height,
                                        
@@ -953,6 +968,7 @@ void trace() {
                                            p0_device, p1_device,
                                            
                                            target_device,
+                                           1e-1f,
                                            
                                            width, height,
                                            
@@ -982,7 +998,8 @@ void trace() {
         
         std::cout << "loss " << index(loss_host, 0) << std::endl;
         
-        write_img("forward_cuda.bmp", forward_host);
+        write_img(("forward/forward_cuda_" +
+                   std::to_string(epoch) + ".bmp").c_str(), forward_host);
         
         float gradient_mag = 0.0f;
         for (int i = 0; i < model_n_matrix[0]; i++) {

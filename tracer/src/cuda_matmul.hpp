@@ -146,7 +146,7 @@ inline float example_sphere(float x, float y, float z) {
     float xi = x;
     float yi = y;
     float zi = z;
-    return sqrtf(xi * xi + yi * yi + zi * zi) - 3.0f;
+    return sqrtf(xi * xi + yi * yi + zi * zi) - 5.0f;
 }
 
 /*template <typename T>
