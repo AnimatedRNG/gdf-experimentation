@@ -10,6 +10,7 @@
 
 #include "read_sdf.hpp"
 
+#include "cuda_io.hpp"
 #include "cuda_matmul.hpp"
 #include "cuda_trilinear.hpp"
 
