@@ -243,9 +243,9 @@ __device__ float3 shade(float3 position, float3 origin, float3 normal,
                                      
     float3 total_light = top_light + self_light;
     
-    //return total_light;
+    return total_light;
     // I disabled the shading for now, the image has constant intensity
-    return make_float3(1.0f, 1.0f, 1.0f);
+    //return make_float3(1.0f, 1.0f, 1.0f);
 }
 
 __device__ float3 light_source_d(float3 light_color,
@@ -276,7 +276,7 @@ __device__ float3 shade_d(float3 position, float3 origin, float3 normal,
                                          
     float3 total_light_d = top_light_d + self_light_d;
     
-    //return total_light_d;
+    return total_light_d;
 
     return make_float3(0.0f, 0.0f, 0.0f);
 }
@@ -371,6 +371,7 @@ __device__ float3 forward_pass(int x,
                                           make_int3(sdf_shape),
                                           ch.pos[tr],
                                           make_float3(0.0f, 0.0f, 0.0f));
+        ch.normal[tr] = make_float3(1.0f, 0.0f, 0.0f);
                                           
         ch.intensity[tr] = shade(ch.pos[tr], ch.origin, ch.normal[tr]);
         
@@ -518,6 +519,7 @@ void backwards_pass(
                     // Trilinear(Normals(i, j, k)). It's the trilinear interpolated
                     // normal of the SDF at location ijk (starts at -1, -1, -1)
                     float3 dnormalstrilinear_sdf_ijk = index_off(&dnormals, i, j, k, 1);
+                    dnormalstrilinear_sdf_ijk = make_float3(0.0f);
                     
                     /*
                       dg_d/ddist -- (dist is a trilinear evaluation of the SDF)
