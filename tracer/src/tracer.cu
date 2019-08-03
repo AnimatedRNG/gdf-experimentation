@@ -156,7 +156,7 @@ __device__ float3 sobel_at(cuda_array<float, 3>* sdf,
 // a_d represents the derivative of the vector w.r.t another variable
 __device__ float3 normalize_vector_d(float3 a,
                                      float3 a_d) {
-    return a * (-1.0f * dot(a_d, a) / powf(length(a), 3.0f) + (1.0f / length(a)));
+    return (-1.0f * a * dot(a_d, a) / powf(length(a), 3.0f) + (a_d / length(a)));
 }
 
 // normals is the array of all the normals
