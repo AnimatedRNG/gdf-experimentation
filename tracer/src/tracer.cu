@@ -959,6 +959,8 @@ void trace() {
                                   
     for (int epoch = 0; epoch < 10000; epoch++) {
         std::cout << "starting epoch " << epoch << std::endl;
+
+        float sigma = 3e-1f / (1.0f + exp(0.01f * (float) epoch)) + 1e-2f;
         
         start = std::chrono::steady_clock::now();
         render <<< blocks, threads, 0 >>> (projection_device,
@@ -970,7 +972,8 @@ void trace() {
                                            p0_device, p1_device,
                                            
                                            target_device,
-                                           1e-1f,
+                                           //2e-1f,
+                                           sigma,
                                            
                                            width, height,
                                            
