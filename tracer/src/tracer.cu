@@ -15,9 +15,11 @@
 #include "cuda_trilinear.hpp"
 #include "adam.hpp"
 
-#define ITERATIONS 2000
+#define ITERATIONS 4000
 
 //#define DEBUG_SDF
+
+#define DEBUG_GRADIENT
 
 #define SQUARE(a) (a * a)
 
@@ -381,7 +383,7 @@ __device__ float3 forward_pass(int x,
     ch.ray_vec = make_float3(0.0f, 0.0f, 0.0f);
     ch.origin = make_float3(0.0f, 0.0f, 0.0f);
     
-    ch.step = 1.0f / 200.0f;
+    ch.step = 1.0f / 400.0f;
     
     const float u_s = 1.0f;
     const float k = -1.0f;
@@ -453,6 +455,7 @@ void backwards_pass(
     cuda_array<float, 1>* loss,
     cuda_array<float, 3>* dLossdSDF,
     cuda_array<float, 2>* dLossdTransform,
+    cuda_array<float3, 2>* debug_backwards,
     
     int width,
     int height,
@@ -499,6 +502,8 @@ void backwards_pass(
     // TODO: set these somewhere else
     const float u_s = 1.0f;
     const float k = -1.0f;
+
+    index(debug_backwards, x, y) = make_float3(0.0f);
     
     //#pragma unroll
     for (int tr = ITERATIONS; tr >= 1; tr--) {
@@ -670,6 +675,7 @@ void backwards_pass(
                                           );
                                           
                     if (!oob) {
+                        index(debug_backwards, x, y) += make_float3(dLossdSDF_ijk) * 1000.0f;
                         atomicAdd(&index(dLossdSDF, sdf_location.x, sdf_location.y, sdf_location.z),
                                   dLossdSDF_ijk);
                     }
@@ -677,6 +683,9 @@ void backwards_pass(
             }
         }
     }
+
+    float3 db = index(debug_backwards, x, y);
+    index(debug_backwards, x, y) = make_float3(abs(db.x), abs(db.y), abs(db.z));
 }
 
 __global__
@@ -697,7 +706,8 @@ void render(float* projection_matrix_,
             float* loss_,
             float* forward_,
             float* dLossdSDF_,
-            float* dLossdTransform_) {
+            float* dLossdTransform_,
+            float3* debug_backwards_) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
     
@@ -709,6 +719,7 @@ void render(float* projection_matrix_,
     size_t single_dim[1] = {1};
     size_t vec3_size[1] = {3};
     size_t image_size[3] = {3, width, height};
+    size_t image_size_mono[2] = {width, height};
     
     cuda_array<float, 2> projection;
     assign<float, 2>(&projection,
@@ -768,6 +779,11 @@ void render(float* projection_matrix_,
     assign<float, 2>(&dLossdTransform,
                      dLossdTransform_,
                      mat4_size);
+
+    cuda_array<float3, 2> debug_backwards;
+    assign<float3, 2>(&debug_backwards,
+                      debug_backwards_,
+                      image_size_mono);
                      
     float3 p0_p = make_float3(index(&p0, 0), index(&p0, 1), index(&p0, 2));
     float3 p1_p = make_float3(index(&p1, 0), index(&p1, 1), index(&p1, 2));
@@ -793,7 +809,7 @@ void render(float* projection_matrix_,
                        &projection, &view, &transform,
                        sigma,
                        &loss,
-                       &dLossdSDF, &dLossdTransform,
+                       &dLossdSDF, &dLossdTransform, &debug_backwards,
                        width, height, ch);
     }
     
@@ -926,6 +942,9 @@ void trace() {
     cuda_array<float, 2>* dloss_dtransform_host = create<float, 2>(mat4_dims);
     float* dloss_dtransform_device = to_device<float, 2>(dloss_dtransform_host,
                                      &mat4_dims_device);
+    
+    cuda_array<float, 3>* debug_backwards_host = create<float, 3>(img_dims);
+    float3* debug_backwards_device = (float3*) to_device<float, 3>(debug_backwards_host, &img_dims_device);
                                      
     const size_t sobel_block_size = 4;
     const size_t target_sobel_grid_size_x = (int)(ceil((float) target_n_matrix[0] /
@@ -997,7 +1016,8 @@ void trace() {
                                        loss_device,
                                        target_device,
                                        dloss_dsdf_device,
-                                       dloss_dtransform_device
+                                       dloss_dtransform_device,
+                                       debug_backwards_device
                                       );
                                       
     cudaThreadSynchronize();
@@ -1046,7 +1066,8 @@ void trace() {
                                            loss_device,
                                            forward_device,
                                            dloss_dsdf_device,
-                                           dloss_dtransform_device
+                                           dloss_dtransform_device,
+                                           debug_backwards_device
                                           );
         cudaThreadSynchronize();
         
@@ -1062,11 +1083,14 @@ void trace() {
         to_host<float, 1>(loss_device, loss_host);
         to_host<float, 3>(forward_device, forward_host);
         to_host<float, 3>(dloss_dsdf_device, dloss_dsdf_host);
+        to_host<float, 3>((float*)debug_backwards_device, debug_backwards_host);
         
         std::cout << "loss " << index(loss_host, 0) << std::endl;
         
-        write_img(("forward/forward_cuda_" +
+        write_img(("tracer_cuda_img/forward_cuda_" +
                    std::to_string(epoch) + ".bmp").c_str(), forward_host);
+        write_img(("tracer_cuda_img/debug_backwards_" +
+                   std::to_string(epoch) + ".bmp").c_str(), debug_backwards_host);
                    
         float gradient_mag = 0.0f;
         for (int i = 0; i < model_n_matrix[0]; i++) {

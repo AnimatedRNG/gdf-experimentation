@@ -112,6 +112,21 @@ __host__ __device__ T& index(cuda_array<T, 3>* arr,
 }
 
 template <typename T>
+__host__ __device__ T& index_debug(cuda_array<T, 3>* arr,
+                                   const int& i,
+                                   const int& j,
+                                   const int& k) {
+#ifdef BOUNDS_CHECKING
+    assert(i < arr->shape[0] && i >= 0);
+    assert(j < arr->shape[1] && j >= 0);
+    assert(k < arr->shape[2] && k >= 0);
+#endif // BOUNDS_CHECKING
+#ifdef DEBUG_GRADIENT
+    return arr->data[i * arr->stride[0] + j * arr->stride[1] + k * arr->stride[2]];
+#endif
+}
+
+template <typename T>
 __host__ __device__ T& index_off(cuda_array<T, 3>* arr,
                                  const int& i,
                                  const int& j,
