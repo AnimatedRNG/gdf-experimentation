@@ -142,6 +142,55 @@ __host__ __device__ T& index(cuda_array<T, 4>* arr,
                        + l * arr->stride[3]];
 }
 
+template <typename T>
+__host__ __device__ T& index(cuda_array<T, 5>* arr,
+                             const int& a0,
+                             const int& a1,
+                             const int& a2,
+                             const int& a3,
+                             const int& a4) {
+#ifdef BOUNDS_CHECKING
+    assert(a0 < arr->shape[0] && a0 >= 0);
+    assert(a1 < arr->shape[1] && a1 >= 0);
+    assert(a2 < arr->shape[2] && a2 >= 0);
+    assert(a3 < arr->shape[3] && a3 >= 0);
+    assert(a4 < arr->shape[4] && a4 >= 0);
+#endif //BOUNDS_CHECKING
+    return arr->data[
+            a0 * arr->stride[0] +
+            a1 * arr->stride[1] +
+            a2 * arr->stride[2] +
+            a3 * arr->stride[3] +
+            a4 * arr->stride[4]
+        ];
+}
+
+template <typename T>
+__host__ __device__ T& index(cuda_array<T, 6>* arr,
+                             const int& a0,
+                             const int& a1,
+                             const int& a2,
+                             const int& a3,
+                             const int& a4,
+                             const int& a5) {
+#ifdef BOUNDS_CHECKING
+    assert(a0 < arr->shape[0] && a0 >= 0);
+    assert(a1 < arr->shape[1] && a1 >= 0);
+    assert(a2 < arr->shape[2] && a2 >= 0);
+    assert(a3 < arr->shape[3] && a3 >= 0);
+    assert(a4 < arr->shape[4] && a4 >= 0);
+    assert(a5 < arr->shape[4] && a5 >= 0);
+#endif //BOUNDS_CHECKING
+    return arr->data[
+            a0 * arr->stride[0] +
+            a1 * arr->stride[1] +
+            a2 * arr->stride[2] +
+            a3 * arr->stride[3] +
+            a4 * arr->stride[4] +
+            a5 * arr->stride[5]
+        ];
+}
+
 inline float example_sphere(float x, float y, float z) {
     float xi = x;
     float yi = y;
@@ -228,7 +277,8 @@ __host__ void zero(cuda_array<T, N>* host, T* device, T zero_val) {
 }
 
 template <typename T, size_t N>
-__host__ void to_host(T* arr, cuda_array<T, N>* host, bool delete_device_buffer=false) {
+__host__ void to_host(T* arr, cuda_array<T, N>* host,
+                      bool delete_device_buffer = false) {
     std::cout << "copying " << host->num_elements << " to host" << std::endl;
 
     int ret = cudaMemcpy(host->data, arr,
