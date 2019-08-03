@@ -107,54 +107,12 @@ __device__ float3 populate_trilinear_pos(
            || grid_space.y < 0.0f || grid_space.y > sdf_shape_f.y
            || grid_space.z < 0.0f || grid_space.z > sdf_shape_f.z);
 
-    // sdf_pos starts at (-1, -1, -1)
-
-    // maybe only set these if the access is valid?
-
-    /*assert(lp.x >= 0);
-    assert(_lp.x >= 0);
-    assert(lp_.x >= 0);
-    assert(_up.x >= 0);
-    assert(up_.x >= 0);*/
-
-    // region 0 - 1
-    /*index_off(sdf_pos, 0, 0, 0, 1) = make_int3(lp.x, lp.y, lp.z);
-    index_off(sdf_pos, 0, 0, 1, 1) = make_int3(lp.x, lp.y, up.z);
-    index_off(sdf_pos, 0, 1, 0, 1) = make_int3(lp.x, up.y, lp.z);
-    index_off(sdf_pos, 0, 1, 1, 1) = make_int3(lp.x, up.y, up.z);
-    index_off(sdf_pos, 1, 0, 0, 1) = make_int3(up.x, lp.y, lp.z);
-    index_off(sdf_pos, 1, 0, 1, 1) = make_int3(up.x, lp.y, up.z);
-    index_off(sdf_pos, 1, 1, 0, 1) = make_int3(up.x, up.y, lp.z);
-    index_off(sdf_pos, 1, 1, 1, 1) = make_int3(up.x, up.y, up.z);
-
-    // region -1 - 0
-    index_off(sdf_pos, 0, 0, 0, 0) = make_int3(_lp.x, _lp.y, _lp.z);
-    index_off(sdf_pos, 0, 0, 1, 0) = make_int3(_lp.x, _lp.y, _up.z);
-    index_off(sdf_pos, 0, 1, 0, 0) = make_int3(_lp.x, _up.y, _lp.z);
-    index_off(sdf_pos, 0, 1, 1, 0) = make_int3(_lp.x, _up.y, _up.z);
-    index_off(sdf_pos, 1, 0, 0, 0) = make_int3(_up.x, _lp.y, _lp.z);
-    index_off(sdf_pos, 1, 0, 1, 0) = make_int3(_up.x, _lp.y, _up.z);
-    index_off(sdf_pos, 1, 1, 0, 0) = make_int3(_up.x, _up.y, _lp.z);
-    index_off(sdf_pos, 1, 1, 1, 0) = make_int3(_up.x, _up.y, _up.z);
-
-    // region 1 - 2
-    index_off(sdf_pos, 0, 0, 0, 2) = make_int3(lp_.x , lp_.y , lp_.z);
-    index_off(sdf_pos, 0, 0, 1, 2) = make_int3(lp_.x , lp_.y , up_.z);
-    index_off(sdf_pos, 0, 1, 0, 2) = make_int3(lp_.x , up_.y , lp_.z);
-    index_off(sdf_pos, 0, 1, 1, 2) = make_int3(lp_.x , up_.y , up_.z);
-    index_off(sdf_pos, 1, 0, 0, 2) = make_int3(up_.x , lp_.y , lp_.z);
-    index_off(sdf_pos, 1, 0, 1, 2) = make_int3(up_.x , lp_.y , up_.z);
-    index_off(sdf_pos, 1, 1, 0, 2) = make_int3(up_.x , up_.y , lp_.z);
-    index_off(sdf_pos, 1, 1, 1, 2) = make_int3(up_.x , up_.y , up_.z);*/
-
     return alpha;
 }
 
 __device__ void dTrilinear_dSDF(int3& lp,
                                 int3& up,
                                 cuda_array < float, 3>* dsdf_vals, // 2x2x2
-                                float3 p0,
-                                float3 p1,
                                 int3 sdf_shape,
 
                                 float3 alpha,
@@ -194,8 +152,6 @@ __device__ void dTrilinear_dNormals(int3& lp,
                                     int3& up,
                                     cuda_array < float, 3>* sdf_vals,        // NxNxN
                                     cuda_array < float3, 3>* dnormals_vals,  // 4x4x4 (x3)
-                                    float3 p0,
-                                    float3 p1,
                                     int3 sdf_shape,
 
                                     float3 alpha,
