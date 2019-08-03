@@ -152,6 +152,52 @@ __device__ float3 sobel_at(cuda_array<float, 3>* sdf,
                      ));
 }
 
+// a represents the vector
+// a_d represents the derivative of the vector w.r.t another variable
+__device__ float3 normalize_vector_d(float3 a,
+                                     float3 a_d) {
+    return a * (-1.0f * dot(a_d, a) / powf(length(a), 3.0f) + (1.0f / length(a)));
+}
+
+// normals is the array of all the normals
+//
+// dsobeldsdf is the array storing the derivative of the sobel
+// filter. It starts at (-1, -1, -1)
+//
+// offset represents our offset from (0, 0, 0)
+__device__ void sobel_at_d(cuda_array<float3, 3>* normals,
+                           cuda_array<float3, 3>* dsobeldsdf,
+                           uint3 pos,
+                           uint3 offset) {
+    float h_kern[3] = {1.0f, 2.0f, 1.0f};
+    float h_p_kern[3] = {1.0f, 0.0f, -1.0f};
+    
+    float3 normal_in = index(normals,
+                             pos.x + offset.x,
+                             pos.y + offset.y,
+                             pos.z + offset.z);
+                             
+    for (int i = -1; i < 2; i++) {
+        for (int j = -1; j < 2; j++) {
+            for (int k = -1; k < 2; k++) {
+                float3 sobel_d = make_float3(
+                                     h_p_kern[i + 1] * h_kern[j + 1] * h_kern[k + 1],
+                                     h_p_kern[j + 1] * h_kern[k + 1] * h_kern[i + 1],
+                                     h_p_kern[k + 1] * h_kern[i + 1] * h_kern[j + 1]
+                                 );
+                float3 normal_sobel_d = normalize_vector_d(normal_in, sobel_d);
+                
+                float3& dnormal_dsdf = index_off(dsobeldsdf,
+                                                 int(offset.x) + i,
+                                                 int(offset.y) + j,
+                                                 int(offset.z) + k, 1);
+                                                 
+                dnormal_dsdf += -1.0f * dnormal_dsdf;
+            }
+        }
+    }
+}
+
 __global__
 void sobel(
     float* sdf_, size_t sdf_shape[3],
@@ -200,10 +246,6 @@ typedef struct {
     
     float step;
 } chk;
-
-__device__ inline float norm_sq(float3 a) {
-    return a.x * a.x + a.y * a.y + a.z * a.z;
-}
 
 __device__ inline float step_f(float a) {
     return (a < 0.0f) ? 0.0f : 1.0f;
@@ -277,7 +319,7 @@ __device__ float3 shade_d(float3 position, float3 origin, float3 normal,
     float3 total_light_d = top_light_d + self_light_d;
     
     return total_light_d;
-
+    
     return make_float3(0.0f, 0.0f, 0.0f);
 }
 
@@ -328,7 +370,7 @@ __device__ float3 forward_pass(int x,
                                cuda_array<float, 2>* projection,
                                cuda_array<float, 2>* view,
                                cuda_array<float, 2>* ray_transform,
-
+                               
                                float sigma,
                                
                                int width,
@@ -372,7 +414,7 @@ __device__ float3 forward_pass(int x,
                                           ch.pos[tr],
                                           make_float3(0.0f, 0.0f, 0.0f));
         ch.normal[tr] = make_float3(1.0f, 0.0f, 0.0f);
-                                          
+        
         ch.intensity[tr] = shade(ch.pos[tr], ch.origin, ch.normal[tr]);
         
         ch.opc[tr + 1] = ch.opc[tr] + ch.g_d[tr] * step;
@@ -545,7 +587,7 @@ void backwards_pass(
                     
                     // represents dIntensity/dSDF
                     float3 intensity_d = shade_d(pos, ch.origin, ch.normal[tr],
-                      dnormalstrilinear_sdf_ijk);
+                                                 dnormalstrilinear_sdf_ijk);
                     // set to zero for now -- represents constant intensity (so derivative is 0)
                     //float intensity_d = 0.0f;
                     
@@ -583,7 +625,6 @@ void backwards_pass(
                     float3 dopc_contribution = index_off(&opc_accumulator, i, j, k,
                                                          1) * (g_d_d * ch.step);
                     float3 dvsdSDF = drops_out_vs + dopc_contribution;
-                    //dvsdSDF = dopc_contribution;
                     index_off(&opc_accumulator, i, j, k, 1) = index_off(&opc_accumulator, i, j, k,
                             1) + t2;
                             
@@ -738,7 +779,7 @@ void render(float* projection_matrix_,
     /*index(&forward, 0, i, j) = c.x;
     index(&forward, 1, i, j) = c.y;
     index(&forward, 2, i, j) = c.z;*/
-
+    
     index(&forward, 0, i, j) = clamp(c.x, 0.0f, 1.0f);
     index(&forward, 1, i, j) = clamp(c.y, 0.0f, 1.0f);
     index(&forward, 2, i, j) = clamp(c.z, 0.0f, 1.0f);
@@ -923,7 +964,7 @@ void trace() {
                                        
                                        // dummy input
                                        forward_device,
-
+                                       
                                        1e-2f,
                                        
                                        width, height,
@@ -959,7 +1000,7 @@ void trace() {
                                   
     for (int epoch = 0; epoch < 10000; epoch++) {
         std::cout << "starting epoch " << epoch << std::endl;
-
+        
         float sigma = 3e-1f / (1.0f + exp(0.01f * (float) epoch)) + 1e-2f;
         
         start = std::chrono::steady_clock::now();
@@ -1005,7 +1046,7 @@ void trace() {
         
         write_img(("forward/forward_cuda_" +
                    std::to_string(epoch) + ".bmp").c_str(), forward_host);
-        
+                   
         float gradient_mag = 0.0f;
         for (int i = 0; i < model_n_matrix[0]; i++) {
             for (int j = 0; j < model_n_matrix[0]; j++) {

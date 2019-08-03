@@ -376,6 +376,10 @@ __host__ __device__ void mat4(cuda_array<T, 2>* m, T data[4][4]) {
     assign<float, 2>(m, (T*) data, dims);
 }
 
+__host__ __device__ inline float norm_sq(float3 v) {
+    return dot(v, v);
+}
+
 template <typename T, size_t N>
 __host__ __device__ void matmul_sq(cuda_array<T, N>* a, cuda_array<T, N>* b,
                                    cuda_array<T, N>* c) {
