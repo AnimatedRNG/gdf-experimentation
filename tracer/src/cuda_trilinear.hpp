@@ -70,6 +70,17 @@ __device__ T trilinear(cuda_array < T, 3>* f,
     return c;
 }
 
+__device__ void get_trilinear_weights(float3 alpha, cuda_array<float, 3>* tw) {
+    index(tw, 0, 0, 0) = (1 - alpha.x) * (1 - alpha.y) * (1 - alpha.z);
+    index(tw, 0, 0, 1) = alpha.z * (1 - alpha.x) * (1 - alpha.y);
+    index(tw, 0, 1, 0) = alpha.y * (1 - alpha.x) * (1 - alpha.z);
+    index(tw, 0, 1, 1) = alpha.y * alpha.z * (1 - alpha.x);
+    index(tw, 1, 0, 0) = alpha.x * (1 - alpha.y) * (1 - alpha.z);
+    index(tw, 1, 0, 1) = alpha.x * alpha.z * (1 - alpha.y);
+    index(tw, 1, 1, 0) = alpha.x * alpha.y * (1 - alpha.z);
+    index(tw, 1, 1, 1) = alpha.x * alpha.y * alpha.z;
+}
+
 // returns alpha
 __device__ float3 populate_trilinear_pos(
     float3 p0,
@@ -79,6 +90,7 @@ __device__ float3 populate_trilinear_pos(
     float3 position,
 
     float3& grid_space,
+    cuda_array<float, 3>* tw,
 
     int3& lp,
     int3& up,
@@ -107,6 +119,8 @@ __device__ float3 populate_trilinear_pos(
            || grid_space.y < 0.0f || grid_space.y > sdf_shape_f.y
            || grid_space.z < 0.0f || grid_space.z > sdf_shape_f.z);
 
+    get_trilinear_weights(alpha, tw);
+
     return alpha;
 }
 
@@ -114,6 +128,8 @@ __device__ void dTrilinear_dSDF(int3& lp,
                                 int3& up,
                                 cuda_array < float, 3>* dsdf_vals, // 2x2x2
                                 int3 sdf_shape,
+
+                                cuda_array < float, 3>* tw,       // 2x2x2
 
                                 float3 alpha,
                                 float3 grid_space,
@@ -136,15 +152,14 @@ __device__ void dTrilinear_dSDF(int3& lp,
         }
     } else {
         // NOTE -- offset 0 because dsdf_vals starts at (0, 0, 0)
-        index_off(dsdf_vals, 0, 0, 0,
-                  0) = (1 - alpha.x) * (1 - alpha.y) * (1 - alpha.z);
-        index_off(dsdf_vals, 0, 0, 1, 0) = alpha.z * (1 - alpha.x) * (1 - alpha.y);
-        index_off(dsdf_vals, 0, 1, 0, 0) = alpha.y * (1 - alpha.x) * (1 - alpha.z);
-        index_off(dsdf_vals, 0, 1, 1, 0) = alpha.y * alpha.z * (1 - alpha.x);
-        index_off(dsdf_vals, 1, 0, 0, 0) = alpha.x * (1 - alpha.y) * (1 - alpha.z);
-        index_off(dsdf_vals, 1, 0, 1, 0) = alpha.x * alpha.z * (1 - alpha.y);
-        index_off(dsdf_vals, 1, 1, 0, 0) = alpha.x * alpha.y * (1 - alpha.z);
-        index_off(dsdf_vals, 1, 1, 1, 0) = alpha.x * alpha.y * alpha.z;
+        index_off(dsdf_vals, 0, 0, 0, 0) = index(tw, 0, 0, 0);
+        index_off(dsdf_vals, 0, 0, 1, 0) = index(tw, 0, 0, 1);
+        index_off(dsdf_vals, 0, 1, 0, 0) = index(tw, 0, 1, 0);
+        index_off(dsdf_vals, 0, 1, 1, 0) = index(tw, 0, 1, 1);
+        index_off(dsdf_vals, 1, 0, 0, 0) = index(tw, 1, 0, 0);
+        index_off(dsdf_vals, 1, 0, 1, 0) = index(tw, 1, 0, 1);
+        index_off(dsdf_vals, 1, 1, 0, 0) = index(tw, 1, 1, 0);
+        index_off(dsdf_vals, 1, 1, 1, 0) = index(tw, 1, 1, 1);
     }
 }
 
