@@ -167,6 +167,7 @@ __device__ float3 normalize_vector_d(float3 a,
 // offset represents our offset from (0, 0, 0)
 __device__ void sobel_at_d(cuda_array<float3, 3>* normals,
                            cuda_array<float3, 3>* dsobeldsdf,
+                           float trilinear_weight,
                            int3 pos,
                            int3 offset) {
     float h_kern[3] = {1.0f, 2.0f, 1.0f};
@@ -187,10 +188,11 @@ __device__ void sobel_at_d(cuda_array<float3, 3>* normals,
                                  );
                 float3 normal_sobel_d = normalize_vector_d(normal_in, sobel_d);
                 
-                float3& dnormal_dsdf = index(dsobeldsdf,
-                                             i + 1, j + 1, k + 1);
+                float3& dnormal_dsdf = index_off(dsobeldsdf,
+                                                 i + offset.x, j + offset.y, k + offset.z,
+                                                 1);
                                              
-                dnormal_dsdf += -1.0f * dnormal_dsdf;
+                dnormal_dsdf += -1.0f * trilinear_weight * dnormal_dsdf;
             }
         }
     }
@@ -474,10 +476,10 @@ void backwards_pass(
     size_t tw_data_dims[3] = {2, 2, 2};
     assign(&tw, (float*) tw_data, tw_data_dims);
     
-    cuda_array<float3, 3> dnormals;
+    /*cuda_array<float3, 3> dnormals;
     float3 dnormals_data[3][3][3];
     size_t dnormals_dims[3] = {3, 3, 3};
-    assign(&dnormals, (float3*) dnormals_data, dnormals_dims);
+    assign(&dnormals, (float3*) dnormals_data, dnormals_dims);*/
     
     cuda_array<float3, 3> dtrilinearnormals_dsdf;
     float3 dtrilinearnormals_dsdf_data[4][4][4];
@@ -527,15 +529,6 @@ void backwards_pass(
                         alpha, grid_space,
                         
                         pos, false);
-                        
-        /*dTrilinear_dNormals(lp, up,
-                            sdf,
-                            &dnormals,
-                            make_int3(sdf_shape),
-        
-                            alpha, grid_space,
-        
-                            pos, false);*/
         
 #pragma unroll
         for (int i = 0; i < 2; i++) {
@@ -544,28 +537,11 @@ void backwards_pass(
 #pragma unroll
                 for (int k = 0; k < 2; k++) {
                     // resets dnormals
-                    sobel_at_d(normals,
-                               &dnormals,
-                               lp, make_int3(i, j, k));
                     float trilinear_weight = index(&tw, i, j, k);
-                    
-                    for (int ii = -1; ii < 2; ii++) {
-                        for (int jj = -1; jj < 2; jj++) {
-                            for (int kk = -1; kk < 2; kk++) {
-                                float3 dTriNorm_dSDF =
-                                    trilinear_weight *
-                                    index_off(&dnormals, ii, jj, kk, 1);
-                                    
-                                index_off(
-                                    &dtrilinearnormals_dsdf,
-                                    i + ii,
-                                    j + jj,
-                                    k + kk,
-                                    1
-                                ) += dTriNorm_dSDF;
-                            }
-                        }
-                    }
+                    sobel_at_d(normals,
+                               &dtrilinearnormals_dsdf,
+                               trilinear_weight,
+                               lp, make_int3(i, j, k));
                 }
             }
         }
