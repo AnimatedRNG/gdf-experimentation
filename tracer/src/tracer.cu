@@ -15,7 +15,7 @@
 #include "cuda_trilinear.hpp"
 #include "adam.hpp"
 
-#define ITERATIONS 4000
+#define ITERATIONS 2000
 
 //#define DEBUG_SDF
 
@@ -194,7 +194,7 @@ __device__ void sobel_at_d(cuda_array<float3, 3>* normals,
                                                  i + offset.x, j + offset.y, k + offset.z,
                                                  1);
                                              
-                dnormal_dsdf += -1.0f * trilinear_weight * dnormal_dsdf;
+                dnormal_dsdf += -1.0f * trilinear_weight * normal_sobel_d;
             }
         }
     }
@@ -383,7 +383,7 @@ __device__ float3 forward_pass(int x,
     ch.ray_vec = make_float3(0.0f, 0.0f, 0.0f);
     ch.origin = make_float3(0.0f, 0.0f, 0.0f);
     
-    ch.step = 1.0f / 400.0f;
+    ch.step = 1.0f / 200.0f;
     
     const float u_s = 1.0f;
     const float k = -1.0f;
