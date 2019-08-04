@@ -136,7 +136,8 @@ __device__ float h_p(cuda_array<float, 3>* sdf,
 
 __device__ float3 sobel_at(cuda_array<float, 3>* sdf,
                            uint3 sdf_shape,
-                           uint3 pos) {
+                           uint3 pos,
+                           bool norm = true) {
     float h_x = h(sdf, sdf_shape, pos, 0);
     float h_y = h(sdf, sdf_shape, pos, 1);
     float h_z = h(sdf, sdf_shape, pos, 2);
@@ -147,11 +148,19 @@ __device__ float3 sobel_at(cuda_array<float, 3>* sdf,
     
     // TODO: properly handle degenerate case where
     // normal equals zero? or should we just add an offset
-    return normalize(make_float3(
-                         h_p_x * h_y * h_z + 1e-7,
-                         h_p_y * h_z * h_x + 1e-7,
-                         h_p_z * h_x * h_y + 1e-7
-                     ));
+    if (norm) {
+        return normalize(make_float3(
+                             h_p_x * h_y * h_z + 1e-7,
+                             h_p_y * h_z * h_x + 1e-7,
+                             h_p_z * h_x * h_y + 1e-7
+                         ));
+    } else {
+        return make_float3(
+                   h_p_x * h_y * h_z + 1e-7,
+                   h_p_y * h_z * h_x + 1e-7,
+                   h_p_z * h_x * h_y + 1e-7
+               );
+    }
 }
 
 // a represents the vector
@@ -175,26 +184,34 @@ __device__ void sobel_at_d(cuda_array<float3, 3>* normals,
     float h_kern[3] = {1.0f, 2.0f, 1.0f};
     float h_p_kern[3] = {1.0f, 0.0f, -1.0f};
     
-    float3 normal_in = index(normals,
-                             pos.x + offset.x,
-                             pos.y + offset.y,
-                             pos.z + offset.z);
-                             
+    /*float3 unc_normal_in = sobel_at(sdf, sdf_shape,
+                                    make_uint3(pos + offset),
+                                    true);*/
+    float3 unc_normal_in = index(normals,
+                                 pos.x + offset.x,
+                                 pos.y + offset.y,
+                                 pos.z + offset.z);
+    
+#pragma unroll
     for (int i = -1; i < 2; i++) {
+#pragma unroll
         for (int j = -1; j < 2; j++) {
+#pragma unroll
             for (int k = -1; k < 2; k++) {
                 float3 sobel_d = make_float3(
                                      h_p_kern[i + 1] * h_kern[j + 1] * h_kern[k + 1],
                                      h_p_kern[j + 1] * h_kern[k + 1] * h_kern[i + 1],
                                      h_p_kern[k + 1] * h_kern[i + 1] * h_kern[j + 1]
                                  );
-                float3 normal_sobel_d = normalize_vector_d(normal_in, sobel_d);
+                                 
+                float3 normal_sobel_d = normalize_vector_d(unc_normal_in, sobel_d);
                 
                 float3& dnormal_dsdf = index_off(dsobeldsdf,
                                                  i + offset.x, j + offset.y, k + offset.z,
                                                  1);
-                                             
+                                                 
                 dnormal_dsdf += -1.0f * trilinear_weight * normal_sobel_d;
+                //dnormal_dsdf += -1.0f * trilinear_weight * 1.0f;
             }
         }
     }
@@ -227,7 +244,8 @@ void sobel(
                                  make_uint3((uint) sdf_shape[0],
                                             (uint) sdf_shape[1],
                                             (uint) sdf_shape[2]),
-                                 make_uint3(i, j, k));
+                                 make_uint3(i, j, k),
+                                 false);
     index(&normals, i, j, k) = sb;
     //index(&normals, i, j, k) = make_float3(i, j, k);
     //normals.data[i + j * 64 + k * 64 * 64] = make_float3(i, j, k);
@@ -411,10 +429,10 @@ __device__ float3 forward_pass(int x,
         // also on iteration tr
         ch.g_d[tr] = normal_pdf_rectified(ch.dist[tr], sigma);
         
-        ch.normal[tr] = trilinear<float3>(normals, p0, p1,
-                                          make_int3(sdf_shape),
-                                          ch.pos[tr],
-                                          make_float3(0.0f, 0.0f, 0.0f));
+        ch.normal[tr] = trilinear_norm(normals, p0, p1,
+                                       make_int3(sdf_shape),
+                                       ch.pos[tr],
+                                       make_float3(0.0f, 0.0f, 0.0f));
         //ch.normal[tr] = make_float3(1.0f, 0.0f, 0.0f);
         
         ch.intensity[tr] = shade(ch.pos[tr], ch.origin, ch.normal[tr]);
@@ -502,7 +520,7 @@ void backwards_pass(
     // TODO: set these somewhere else
     const float u_s = 1.0f;
     const float k = -1.0f;
-
+    
     index(debug_backwards, x, y) = make_float3(0.0f);
     
     //#pragma unroll
@@ -525,6 +543,10 @@ void backwards_pass(
         float3 alpha = populate_trilinear_pos(p0, p1, make_int3(sdf_shape),
                                               pos, grid_space, &tw, lp, up, oob);
                                               
+        //if (oob) {
+        //    continue;
+        //}
+        
         dTrilinear_dSDF(lp, up,
                         &dsdf,
                         make_int3(sdf_shape),
@@ -534,7 +556,7 @@ void backwards_pass(
                         alpha, grid_space,
                         
                         pos, false);
-        
+                        
 #pragma unroll
         for (int i = 0; i < 2; i++) {
 #pragma unroll
@@ -588,9 +610,9 @@ void backwards_pass(
                     // normal of the SDF at location ijk (starts at -1, -1, -1)
                     //float3 dnormalstrilinear_sdf_ijk = index_off(&dnormals, i, j, k, 1);
                     //float3 dnormalstrilinear_sdf_ijk = make_float3(0.0f);
-                    float3 dnormalstrilinear_sdf_ijk =
-                        index_off(&dtrilinearnormals_dsdf, i, j, k, 1);
-                    
+                    float3 dnormalstrilinear_sdf_ijk = index_off(&dtrilinearnormals_dsdf, i, j, k,
+                                                       1);
+                                                       
                     /*
                       dg_d/ddist -- (dist is a trilinear evaluation of the SDF)
                     
@@ -616,7 +638,7 @@ void backwards_pass(
                     // represents dIntensity/dSDF
                     float3 intensity_d = shade_d(pos, ch.origin, ch.normal[tr],
                                                  dnormalstrilinear_sdf_ijk);
-                    
+                                                 
                     /**
                      * dvs_{t + 1}/dSDF
                      *
@@ -683,7 +705,7 @@ void backwards_pass(
             }
         }
     }
-
+    
     float3 db = index(debug_backwards, x, y);
     index(debug_backwards, x, y) = make_float3(abs(db.x), abs(db.y), abs(db.z));
 }
@@ -779,12 +801,12 @@ void render(float* projection_matrix_,
     assign<float, 2>(&dLossdTransform,
                      dLossdTransform_,
                      mat4_size);
-
+                     
     cuda_array<float3, 2> debug_backwards;
     assign<float3, 2>(&debug_backwards,
                       debug_backwards_,
                       image_size_mono);
-                     
+                      
     float3 p0_p = make_float3(index(&p0, 0), index(&p0, 1), index(&p0, 2));
     float3 p1_p = make_float3(index(&p1, 0), index(&p1, 1), index(&p1, 2));
     uint3 sdf_shape_p = make_uint3(sdf_shape[0],
@@ -942,9 +964,10 @@ void trace() {
     cuda_array<float, 2>* dloss_dtransform_host = create<float, 2>(mat4_dims);
     float* dloss_dtransform_device = to_device<float, 2>(dloss_dtransform_host,
                                      &mat4_dims_device);
-    
+                                     
     cuda_array<float, 3>* debug_backwards_host = create<float, 3>(img_dims);
-    float3* debug_backwards_device = (float3*) to_device<float, 3>(debug_backwards_host, &img_dims_device);
+    float3* debug_backwards_device = (float3*) to_device<float, 3>
+                                     (debug_backwards_host, &img_dims_device);
                                      
     const size_t sobel_block_size = 4;
     const size_t target_sobel_grid_size_x = (int)(ceil((float) target_n_matrix[0] /

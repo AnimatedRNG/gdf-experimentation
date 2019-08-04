@@ -48,14 +48,16 @@ __device__ T trilinear(cuda_array < T, 3>* f,
 
     float3 alpha = grid_space - make_float3(lp);
 
-    T c000 = index(f, lp.x, lp.y, lp.z);
-    T c001 = index(f, lp.x, lp.y, up.z);
-    T c010 = index(f, lp.x, up.y, lp.z);
-    T c011 = index(f, lp.x, up.y, up.z);
-    T c100 = index(f, up.x, lp.y, lp.z);
-    T c101 = index(f, up.x, lp.y, up.z);
-    T c110 = index(f, up.x, up.y, lp.z);
-    T c111 = index(f, up.x, up.y, up.z);
+    T c000, c001, c010, c011, c100, c101, c110, c111;
+
+    c000 = index(f, lp.x, lp.y, lp.z);
+    c001 = index(f, lp.x, lp.y, up.z);
+    c010 = index(f, lp.x, up.y, lp.z);
+    c011 = index(f, lp.x, up.y, up.z);
+    c100 = index(f, up.x, lp.y, lp.z);
+    c101 = index(f, up.x, lp.y, up.z);
+    c110 = index(f, up.x, up.y, lp.z);
+    c111 = index(f, up.x, up.y, up.z);
 
     T c00 = my_lerp(c000, c100, alpha.x);
     T c01 = my_lerp(c001, c101, alpha.x);
@@ -66,6 +68,60 @@ __device__ T trilinear(cuda_array < T, 3>* f,
     T c1 = my_lerp(c01, c11, alpha.y);
 
     T c = my_lerp(c0, c1, alpha.z);
+
+    return c;
+}
+
+__device__ float3 trilinear_norm(cuda_array < float3, 3>* f,
+                            float3 p0,
+                            float3 p1,
+                            int3 sdf_shape,
+
+                            float3 position,
+                            float3 exterior,
+                            bool clamp_coords = false
+                           ) {
+    float3 sdf_shape_f = make_float3(sdf_shape.x, sdf_shape.y, sdf_shape.z);
+    float3 grid_space = ((position - p0) / (p1 - p0)) * sdf_shape_f;
+
+    if (!clamp_coords && (grid_space.x < 0.0f || grid_space.x > sdf_shape_f.x
+                          || grid_space.y < 0.0f || grid_space.y > sdf_shape_f.y
+                          || grid_space.z < 0.0f || grid_space.z > sdf_shape_f.z)) {
+        return exterior;
+    }
+
+    int3 lp = make_int3(
+                  clamp(int(floor(grid_space.x)), 0, sdf_shape.x - 1),
+                  clamp(int(floor(grid_space.y)), 0, sdf_shape.y - 1),
+                  clamp(int(floor(grid_space.z)), 0, sdf_shape.z - 1)
+              );
+    int3 up = make_int3(
+                  clamp(int(ceil(grid_space.x)), 0, sdf_shape.x - 1),
+                  clamp(int(ceil(grid_space.y)), 0, sdf_shape.y - 1),
+                  clamp(int(ceil(grid_space.z)), 0, sdf_shape.z - 1)
+              );
+
+    float3 alpha = grid_space - make_float3(lp);
+
+    float3 c000, c001, c010, c011, c100, c101, c110, c111;
+    c000 = normalize(index(f, lp.x, lp.y, lp.z));
+    c001 = normalize(index(f, lp.x, lp.y, up.z));
+    c010 = normalize(index(f, lp.x, up.y, lp.z));
+    c011 = normalize(index(f, lp.x, up.y, up.z));
+    c100 = normalize(index(f, up.x, lp.y, lp.z));
+    c101 = normalize(index(f, up.x, lp.y, up.z));
+    c110 = normalize(index(f, up.x, up.y, lp.z));
+    c111 = normalize(index(f, up.x, up.y, up.z));
+
+    float3 c00 = my_lerp(c000, c100, alpha.x);
+    float3 c01 = my_lerp(c001, c101, alpha.x);
+    float3 c10 = my_lerp(c010, c110, alpha.x);
+    float3 c11 = my_lerp(c011, c111, alpha.x);
+
+    float3 c0 = my_lerp(c00, c10, alpha.y);
+    float3 c1 = my_lerp(c01, c11, alpha.y);
+
+    float3 c = my_lerp(c0, c1, alpha.z);
 
     return c;
 }
