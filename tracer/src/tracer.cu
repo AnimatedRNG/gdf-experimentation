@@ -1107,6 +1107,12 @@ void trace() {
         to_host<float, 3>(forward_device, forward_host);
         to_host<float, 3>(dloss_dsdf_device, dloss_dsdf_host);
         to_host<float, 3>((float*)debug_backwards_device, debug_backwards_host);
+
+        to_host<float, 3>(model_sdf_device, model_sdf_host);
+        write_sdf("bunny/bunny_" + std::to_string(epoch) + ".sdf",
+                  model_sdf_host,
+                  p0_host,
+                  p1_host);
         
         std::cout << "loss " << index(loss_host, 0) << std::endl;
         
