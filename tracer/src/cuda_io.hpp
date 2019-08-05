@@ -1,5 +1,11 @@
 #pragma once
 
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <iomanip>
+
 #include "HalideBuffer.h"
 #include "math.h"
 #include "helper_math.h"
@@ -40,4 +46,40 @@ __host__ void write_img(const char* filename, cuda_array<float, 3>* arr) {
     }
 
     stbi_write_bmp(filename, arr->shape[1], arr->shape[2], 3, arr_bytes);
+}
+
+__host__ void write_sdf(const std::string& filename,
+                        cuda_array<float, 3>* arr,
+                        cuda_array<float, 1>* p0,
+                        cuda_array<float, 1>* p1) {
+    std::ofstream outfile(filename);
+
+    if (!outfile.is_open()) {
+        throw std::runtime_error("unable to open " + filename);
+    }
+
+    outfile << arr->shape[0] << " " << arr->shape[1] << " " << arr->shape[2] <<
+            std::endl;
+
+    outfile << index(p0, 0) << " " << index(p0, 1) << " " << index(p0,
+            2) << std::endl;
+
+    // our SDFs can have rectangular grid cells
+    // which aren't representable in the .sdf format
+    float dx = (index(p1, 0) - index(p0, 0)) / arr->shape[0];
+
+    outfile << dx << std::endl;
+
+    for (int z = 0; z < arr->shape[2]; z++) {
+        for (int y = 0; y < arr->shape[1]; y++) {
+            for (int x = 0; x < arr->shape[0]; x++) {
+                outfile << std::setw(11)
+                        << std::setprecision(5)
+                        << index(arr, x, y, z)
+                        << std::endl;
+            }
+        }
+    }
+
+    outfile.close();
 }
