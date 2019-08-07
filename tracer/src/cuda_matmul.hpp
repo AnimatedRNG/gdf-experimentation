@@ -213,6 +213,13 @@ inline float example_sphere(float x, float y, float z) {
     return sqrtf(xi * xi + yi * yi + zi * zi) - 1.0f;
 }
 
+inline float example_box(float x, float y, float z) {
+    float xi = x;
+    float yi = y;
+    float zi = z;
+    return sqrtf(xi * xi + yi * yi + zi * zi) - 3.0f;
+}
+
 /*template <typename T>
 __device__ __host__ void fill(cuda_array<T, 2>* arr, const T& val) {
     for (int j = 0; j < arr->shape[1]; j++) {

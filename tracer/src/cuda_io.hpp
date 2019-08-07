@@ -6,7 +6,11 @@
 #include <string>
 #include <iomanip>
 
+#include "fmm_gen.h"
+
 #include "HalideBuffer.h"
+#include "HalideRuntime.h"
+#include "HalideRuntimeCuda.h"
 #include "math.h"
 #include "helper_math.h"
 #include "cuda_matmul.hpp"
@@ -82,4 +86,33 @@ __host__ void write_sdf(const std::string& filename,
     }
 
     outfile.close();
+}
+
+void call_fmm(cuda_array<float, 3>* sdf,
+              cuda_array<float, 1>* p0_,
+              cuda_array<float, 1>* p1_) {
+    std::vector<int> sizes;
+    for (auto size : sdf->shape) {
+        sizes.push_back(size);
+    }
+
+    auto interface = halide_cuda_device_interface();
+
+    Buffer<float> p0(p0_->data, {3});
+    Buffer<float> p1(p1_->data, {3});
+
+    Buffer<float> sdf_buf(sdf->data, sizes);
+    sdf_buf.set_host_dirty();
+    sdf_buf.copy_to_device(interface);
+
+    Buffer<float> sdf_output(sizes);
+
+    fmm_gen(sdf_buf, p0, p1,
+            sdf->shape[0], sdf->shape[1], sdf->shape[2],
+            sdf_output);
+
+    sdf_output.copy_to_host();
+
+    sdf_buf.set_host_dirty(false);
+    sdf_buf.copy_from(sdf_output);
 }

@@ -34,8 +34,8 @@ __device__ void projection_gen(int x,
                                float3& origin,
                                float near = 0.1f
                               ) {
-    float2 ss_norm = make_float2(((float) x) / ((float) width),
-                                 ((float) y) / ((float) height));
+    float2 ss_norm = make_float2(((float) x + 0.5f) / ((float) width),
+                                 ((float) y + 0.5f) / ((float) height));
     float2 clip_space_xy = ss_norm * 2.0f - 1.0f;
     float4 clip_space = make_float4(clip_space_xy.x, clip_space_xy.y, 1.0f, 1.0f);
     
@@ -191,7 +191,7 @@ __device__ void sobel_at_d(cuda_array<float3, 3>* normals,
                                  pos.x + offset.x,
                                  pos.y + offset.y,
                                  pos.z + offset.z);
-    
+                                 
 #pragma unroll
     for (int i = -1; i < 2; i++) {
 #pragma unroll
@@ -305,9 +305,9 @@ __device__ float3 shade(float3 position, float3 origin, float3 normal,
                                      
     float3 total_light = top_light + self_light;
     
-    return total_light;
+    //return total_light;
     // I disabled the shading for now, the image has constant intensity
-    //return make_float3(1.0f, 1.0f, 1.0f);
+    return make_float3(1.0f, 1.0f, 1.0f);
 }
 
 __device__ float3 light_source_d(float3 light_color,
@@ -338,9 +338,9 @@ __device__ float3 shade_d(float3 position, float3 origin, float3 normal,
                                          
     float3 total_light_d = top_light_d + self_light_d;
     
-    return total_light_d;
+    //return total_light_d;
     
-    //return make_float3(0.0f, 0.0f, 0.0f);
+    return make_float3(0.0f, 0.0f, 0.0f);
 }
 
 __device__ inline float to_render_dist(float dist, float scale_factor = 1.0f) {
@@ -482,9 +482,9 @@ void backwards_pass(
     float3 target_color = make_float3(index(target, 0, x, y),
                                       index(target, 1, x, y),
                                       index(target, 2, x, y));
-    atomicAdd(&index(loss, 0),
-              norm_sq(target_color - ch.volumetric_shaded[ITERATIONS]));
-              
+    float my_loss = norm_sq(target_color - ch.volumetric_shaded[ITERATIONS]);
+    atomicAdd(&index(loss, 0), my_loss);
+    
     // reset each iteration
     // represents the derivative of trilinear w.r.t the SDF
     cuda_array<float, 3> dsdf;
@@ -522,6 +522,7 @@ void backwards_pass(
     const float k = -1.0f;
     
     index(debug_backwards, x, y) = make_float3(0.0f);
+    //index(debug_backwards, x, y) = make_float3(my_loss);
     
     //#pragma unroll
     for (int tr = ITERATIONS; tr >= 1; tr--) {
@@ -543,9 +544,9 @@ void backwards_pass(
         float3 alpha = populate_trilinear_pos(p0, p1, make_int3(sdf_shape),
                                               pos, grid_space, &tw, lp, up, oob);
                                               
-        //if (oob) {
-        //    continue;
-        //}
+        if (oob) {
+            continue;
+        }
         
         dTrilinear_dSDF(lp, up,
                         &dsdf,
@@ -557,11 +558,12 @@ void backwards_pass(
                         
                         pos, false);
                         
-#pragma unroll
+        /*
+        #pragma unroll
         for (int i = 0; i < 2; i++) {
-#pragma unroll
+        #pragma unroll
             for (int j = 0; j < 2; j++) {
-#pragma unroll
+        #pragma unroll
                 for (int k = 0; k < 2; k++) {
                     // resets dnormals
                     float trilinear_weight = index(&tw, i, j, k);
@@ -571,7 +573,7 @@ void backwards_pass(
                                lp, make_int3(i, j, k));
                 }
             }
-        }
+            }*/
         
         float expf_k_opc1 = expf(k * opc_t1);
         
@@ -609,10 +611,10 @@ void backwards_pass(
                     // Trilinear(Normals(i, j, k)). It's the trilinear interpolated
                     // normal of the SDF at location ijk (starts at -1, -1, -1)
                     //float3 dnormalstrilinear_sdf_ijk = index_off(&dnormals, i, j, k, 1);
-                    //float3 dnormalstrilinear_sdf_ijk = make_float3(0.0f);
-                    float3 dnormalstrilinear_sdf_ijk = index_off(&dtrilinearnormals_dsdf, i, j, k,
-                                                       1);
-                                                       
+                    float3 dnormalstrilinear_sdf_ijk = make_float3(0.0f);
+                    //float3 dnormalstrilinear_sdf_ijk = index_off(&dtrilinearnormals_dsdf, i, j, k,
+                    //                                   1);
+                    
                     /*
                       dg_d/ddist -- (dist is a trilinear evaluation of the SDF)
                     
@@ -846,7 +848,7 @@ void render(float* projection_matrix_,
 
 void trace() {
     size_t model_n_matrix[3] = {
-        64, 64, 64
+        16, 16, 16
     };
     
     const float projection_matrix[4][4] = {
@@ -917,7 +919,7 @@ void trace() {
     float* model_sdf_device = to_device<float, 3>(model_sdf_host,
                               &model_n_matrix_device);
                               
-    int n_matrix_i[3];
+    /*int n_matrix_i[3];
     Buffer<float> target_sdf_buf(read_sdf("bunny.sdf",
                                           p0_matrix[0], p0_matrix[1], p0_matrix[2],
                                           p1_matrix[0], p1_matrix[1], p1_matrix[2],
@@ -926,7 +928,16 @@ void trace() {
     cuda_array<float, 3>* target_sdf_host = from_buffer<float, 3>(target_sdf_buf);
     for (int i = 0; i < 3; i++) {
         target_n_matrix[i] = n_matrix_i[i];
+        }*/
+    for (int i = 0; i < 3; i++) {
+        target_n_matrix[i] = 16;
     }
+    cuda_array<float, 3>* target_sdf_host = create<float, 3>(target_n_matrix);
+    gen_sdf(example_box,
+            p0_matrix[0], p0_matrix[1], p0_matrix[2],
+            p1_matrix[0], p1_matrix[1], p1_matrix[2],
+            target_sdf_host);
+            
     float* target_sdf_device = to_device<float, 3>(target_sdf_host,
                                &target_n_matrix_device);
                                
@@ -1107,13 +1118,13 @@ void trace() {
         to_host<float, 3>(forward_device, forward_host);
         to_host<float, 3>(dloss_dsdf_device, dloss_dsdf_host);
         to_host<float, 3>((float*)debug_backwards_device, debug_backwards_host);
-
+        
         to_host<float, 3>(model_sdf_device, model_sdf_host);
         write_sdf("bunny/bunny_" + std::to_string(epoch) + ".sdf",
                   model_sdf_host,
                   p0_host,
                   p1_host);
-        
+                  
         std::cout << "loss " << index(loss_host, 0) << std::endl;
         
         write_img(("tracer_cuda_img/forward_cuda_" +
