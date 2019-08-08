@@ -488,7 +488,8 @@ void backwards_pass(
     float3 target_color = make_float3(index(target, 0, x, y),
                                       index(target, 1, x, y),
                                       index(target, 2, x, y));
-    float my_loss = norm_sq(target_color - ch.volumetric_shaded[ITERATIONS]);
+    float3 my_color = ch.volumetric_shaded[ITERATIONS];
+    float my_loss = norm_sq(target_color - my_color);
     atomicAdd(&index(loss, 0), my_loss);
     
     // reset each iteration
@@ -517,11 +518,7 @@ void backwards_pass(
            
     // not reset each iteration
     // represents the accumulation of the coefficient of opc
-    cuda_array<float3, 3> opc_accumulator;
-    float3 opc_accumulator_data[4][4][4];
-    size_t opc_accumulator_dims[3] = {4, 4, 4};
-    assign(&opc_accumulator, (float3*) opc_accumulator_data, opc_accumulator_dims);
-    fill(&opc_accumulator, make_float3(0.0f));
+    float3 opc_accumulator = make_float3(0.0f, 0.0f, 0.0f);
     
     // TODO: set these somewhere else
     const float u_s = 1.0f;
@@ -678,13 +675,9 @@ void backwards_pass(
                      **/
                     
                     float3 drops_out_vs = t1 * g_d_d + t3 * scattering_d + t4 * intensity_d;
-                    float3 dopc_contribution = index_off(&opc_accumulator, i, j, k,
-                                                         1) * (g_d_d * ch.step);
+                    float3 dopc_contribution = opc_accumulator * (g_d_d * ch.step);
                     float3 dvsdSDF = drops_out_vs + dopc_contribution;
-                    float3 dOutdSDF = mesa(ch.volumetric_shaded[ITERATIONS]) *
-                        dvsdSDF;
-                    index_off(&opc_accumulator, i, j, k, 1) = index_off(&opc_accumulator, i, j, k,
-                            1) + t2;
+                    float3 dOutdSDF = mesa(my_color) * dvsdSDF;
                             
                     /**
                      * Now that we have dvs/dSDF, we need to compute dLoss/dSDF
@@ -714,6 +707,8 @@ void backwards_pass(
                 }
             }
         }
+
+        opc_accumulator += t2;
     }
     
     float3 db = index(debug_backwards, x, y);
