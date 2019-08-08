@@ -275,6 +275,12 @@ __device__ inline float mesa(float a, float low = 0.0f, float high = 1.0f) {
     return (a < low || a > high) ? 0.0f : 1.0f;
 }
 
+__device__ inline float3 mesa(float3 a, float low = 0.0f, float high = 1.0f) {
+    return make_float3((a.x < low || a.x > high) ? 0.0f : 1.0f,
+                       (a.y < low || a.y > high) ? 0.0f : 1.0f,
+                       (a.z < low || a.z > high) ? 0.0f : 1.0f);
+}
+
 __device__ void create_chk(chk& c) {
     c.opc[0] = 0.0f;
     c.volumetric_shaded[0] = make_float3(0.0f, 0.0f, 0.0f);
@@ -675,6 +681,8 @@ void backwards_pass(
                     float3 dopc_contribution = index_off(&opc_accumulator, i, j, k,
                                                          1) * (g_d_d * ch.step);
                     float3 dvsdSDF = drops_out_vs + dopc_contribution;
+                    float3 dOutdSDF = mesa(ch.volumetric_shaded[ITERATIONS]) *
+                        dvsdSDF;
                     index_off(&opc_accumulator, i, j, k, 1) = index_off(&opc_accumulator, i, j, k,
                             1) + t2;
                             
@@ -693,9 +701,9 @@ void backwards_pass(
                     //                      dvsdSDF);
                     float dLossdSDF_ijk = (-2.0f / (3.0f)) *
                                           (
-                                              (target_color.x - vs_t1.x) * dvsdSDF.x +
-                                              (target_color.y - vs_t1.y) * dvsdSDF.y +
-                                              (target_color.z - vs_t1.z) * dvsdSDF.z
+                                              (target_color.x - vs_t1.x) * dOutdSDF.x +
+                                              (target_color.y - vs_t1.y) * dOutdSDF.y +
+                                              (target_color.z - vs_t1.z) * dOutdSDF.z
                                           );
                                           
                     if (!oob) {
