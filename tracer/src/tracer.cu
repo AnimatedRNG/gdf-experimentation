@@ -1167,6 +1167,12 @@ void trace() {
 #endif
         
         optim.step();
+
+        to_host<float, 3>(model_sdf_device, model_sdf_host);
+        //call_fmm(model_sdf_host, p0_host, p1_host);
+        cudaMemcpy(model_sdf_device, model_sdf_host->data,
+                   model_sdf_host->num_elements * sizeof(float),
+                   cudaMemcpyHostToDevice);
         
         // zero the loss/gradient/forward
         zero(loss_host, loss_device, 0.0f);
