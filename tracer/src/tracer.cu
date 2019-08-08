@@ -712,7 +712,7 @@ void backwards_pass(
     }
     
     float3 db = index(debug_backwards, x, y);
-    index(debug_backwards, x, y) = make_float3(abs(db.x), abs(db.y), abs(db.z));
+    index(debug_backwards, x, y) = make_float3(max(db.x, 0.0f), -min(db.y, 0.0f), 0.0f);
 }
 
 __global__
@@ -851,7 +851,7 @@ void render(float* projection_matrix_,
 
 void trace() {
     size_t model_n_matrix[3] = {
-        16, 16, 16
+        32, 32, 32
     };
     
     const float projection_matrix[4][4] = {
@@ -922,7 +922,7 @@ void trace() {
     float* model_sdf_device = to_device<float, 3>(model_sdf_host,
                               &model_n_matrix_device);
                               
-    /*int n_matrix_i[3];
+    int n_matrix_i[3];
     Buffer<float> target_sdf_buf(read_sdf("bunny.sdf",
                                           p0_matrix[0], p0_matrix[1], p0_matrix[2],
                                           p1_matrix[0], p1_matrix[1], p1_matrix[2],
@@ -931,15 +931,15 @@ void trace() {
     cuda_array<float, 3>* target_sdf_host = from_buffer<float, 3>(target_sdf_buf);
     for (int i = 0; i < 3; i++) {
         target_n_matrix[i] = n_matrix_i[i];
-        }*/
-    for (int i = 0; i < 3; i++) {
+    }
+    /*for (int i = 0; i < 3; i++) {
         target_n_matrix[i] = 16;
     }
     cuda_array<float, 3>* target_sdf_host = create<float, 3>(target_n_matrix);
     gen_sdf(example_box,
             p0_matrix[0], p0_matrix[1], p0_matrix[2],
             p1_matrix[0], p1_matrix[1], p1_matrix[2],
-            target_sdf_host);
+            target_sdf_host);*/
             
     float* target_sdf_device = to_device<float, 3>(target_sdf_host,
                                &target_n_matrix_device);
@@ -1042,7 +1042,7 @@ void trace() {
                                        // dummy input
                                        forward_device,
                                        
-                                       1e-1f,
+                                       1e-2f,
                                        
                                        width, height,
                                        
@@ -1079,8 +1079,8 @@ void trace() {
     for (int epoch = 0; epoch < 10000; epoch++) {
         std::cout << "starting epoch " << epoch << std::endl;
         
-        //float sigma = 3e-1f / (1.0f + exp(0.01f * (float) epoch)) + 1e-2f;
-        float sigma = 1e-1f;
+        float sigma = 4e-1f / (1.0f + exp(0.001f * (float) epoch)) + 1e-1f;
+        //float sigma = 4e-1;
         
         start = std::chrono::steady_clock::now();
         render <<< blocks, threads, 0 >>> (projection_device,
@@ -1169,7 +1169,7 @@ void trace() {
         optim.step();
 
         to_host<float, 3>(model_sdf_device, model_sdf_host);
-        //call_fmm(model_sdf_host, p0_host, p1_host);
+        call_fmm(model_sdf_host, p0_host, p1_host);
         cudaMemcpy(model_sdf_device, model_sdf_host->data,
                    model_sdf_host->num_elements * sizeof(float),
                    cudaMemcpyHostToDevice);
