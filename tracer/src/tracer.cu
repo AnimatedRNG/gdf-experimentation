@@ -21,7 +21,7 @@
 
 #define DEBUG_GRADIENT
 
-#define SQUARE(a) (a * a)
+#define SQUARE(a) ((a) * (a))
 
 __device__ void projection_gen(int x,
                                int y,
