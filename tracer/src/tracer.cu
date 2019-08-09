@@ -851,25 +851,25 @@ void render(float* projection_matrix_,
 
 // only returns device pointers!
 __host__ std::vector<float*> generate_view_matrices(const float& r = 4.0f,
-                                                    const int& num_theta=3,
-                                                    const int& num_phi=3) {
+        const int& num_theta = 3,
+        const int& num_phi = 3) {
     size_t mat4_dims[2] = {4, 4};
     size_t* mat4_dims_device;
     
     std::vector<float*> view_matrices;
     view_matrices.clear();
     
-    for (float phi = (float) -M_PI + ((float) M_PI / num_phi);
-         phi < (float) M_PI - ((float) M_PI / num_phi);
-         phi += ((float) M_PI) / ((float) num_phi + 2)) {
+    for (float phi = (float) - M_PI + ((float) M_PI / num_phi);
+            phi < (float) M_PI - ((float) M_PI / num_phi);
+            phi += ((float) M_PI) / ((float) num_phi + 2)) {
         for (float theta = 0;
-             theta < 2.0f * (float) M_PI;
-             theta += (2.0f * (float) M_PI) / (float) num_theta) {
-
+                theta < 2.0f * (float) M_PI;
+                theta += (2.0f * (float) M_PI) / (float) num_theta) {
+                
             float x = r * cosf(theta) * sinf(phi);
             float z = r * sinf(theta) * sinf(phi);
             float y = r * cosf(phi);
-
+            
             std::cout << "x: " << x << "; y: " << y << "; z: " << z << std::endl;
             
             cuda_array<float, 2>* view_host = create<float, 2>(mat4_dims);
@@ -877,16 +877,16 @@ __host__ std::vector<float*> generate_view_matrices(const float& r = 4.0f,
                     make_float3(x, y, z),
                     make_float3(0.0f, 0.0f, 0.0f),
                     make_float3(0.0f, 1.0f, 0.0f));
-
+                    
             float* view_device = to_device<float, 2>(view_host,
-                               &mat4_dims_device);
-
+                                 &mat4_dims_device);
+                                 
             view_matrices.push_back(view_device);
             
             delete_array(view_host);
         }
     }
-
+    
     return view_matrices;
 }
 
@@ -945,7 +945,7 @@ void trace() {
     assign(projection_host, (float*) projection_matrix, mat4_dims, true);
     float* projection_device = to_device<float, 2>(projection_host,
                                &mat4_dims_device);
-
+                               
     std::vector<float*> view_device = generate_view_matrices(6);
     size_t num_views = view_device.size();
     //float* view_device = view_matrices.at(8);
@@ -1000,23 +1000,25 @@ void trace() {
     cuda_array<float, 1>* p1_host = create<float, 1>(vec3_dims);
     assign(p1_host, (float*) p1_matrix, vec3_dims, true);
     float* p1_device = to_device<float, 1>(p1_host, &vec3_dims_device);
-
+    
     std::vector<cuda_array<float, 3>*> target_host;
     std::vector<float*> target_device;
-
+    
     std::vector<cuda_array<float, 3>*> forward_host;
     std::vector<float*> forward_device;
-
+    
     std::vector<cuda_array<float, 3>*> debug_backwards_host;
     std::vector<float3*> debug_backwards_device;
     
     for (size_t i = 0; i < num_views; i++) {
         target_host.push_back(create<float, 3>(img_dims));
-        target_device.push_back(to_device<float, 3>(target_host.at(i), &img_dims_device));
-
+        target_device.push_back(to_device<float, 3>(target_host.at(i),
+                                &img_dims_device));
+                                
         forward_host.push_back(create<float, 3>(img_dims));
-        forward_device.push_back(to_device<float, 3>(forward_host.at(0), &img_dims_device));
-
+        forward_device.push_back(to_device<float, 3>(forward_host.at(0),
+                                 &img_dims_device));
+                                 
         debug_backwards_host.push_back(create<float, 3>(img_dims));
         debug_backwards_device.push_back(
             (float3*) to_device<float, 3>(debug_backwards_host.at(0), &img_dims_device));
@@ -1082,36 +1084,36 @@ void trace() {
     dim3 threads(block_size, block_size);
     
     auto start = std::chrono::steady_clock::now();
-
+    
     for (size_t img_num = 0; img_num < num_views; img_num++) {
         render <<< blocks, threads, img_num >>> (
-                                           projection_device,
-                                           view_device.at(img_num),
-                                           transform_device,
-
-                                           target_sdf_device, target_n_matrix_device,
-                                           target_normals_device,
-                                           p0_device, p1_device,
-
-                                           // dummy input
-                                           forward_device.at(img_num),
-
-                                           1e-2f,
-
-                                           width, height,
-
-                                           // only do forwards pass
-                                           true,
-
-                                           // outputs
-                                           loss_device,
-                                           target_device.at(img_num),
-                                           dloss_dsdf_device,
-                                           dloss_dtransform_device,
-                                           debug_backwards_device.at(img_num)
-                                          );
+            projection_device,
+            view_device.at(img_num),
+            transform_device,
+            
+            target_sdf_device, target_n_matrix_device,
+            target_normals_device,
+            p0_device, p1_device,
+            
+            // dummy input
+            forward_device.at(img_num),
+            
+            1e-2f,
+            
+            width, height,
+            
+            // only do forwards pass
+            true,
+            
+            // outputs
+            loss_device,
+            target_device.at(img_num),
+            dloss_dsdf_device,
+            dloss_dtransform_device,
+            debug_backwards_device.at(img_num)
+        );
     }
-                                      
+    
     cudaThreadSynchronize();
     
     auto end = std::chrono::steady_clock::now();
@@ -1122,7 +1124,7 @@ void trace() {
               << std::chrono::duration <float, std::milli> (diff).count()
               << " ms"
               << std::endl << std::endl;
-
+              
     for (size_t img_num = 0; img_num < num_views; img_num++) {
         to_host<float, 3>(target_device.at(img_num), target_host.at(img_num));
         write_img((std::string("target/target_cuda_")
@@ -1138,71 +1140,75 @@ void trace() {
     for (int epoch = 0; epoch < 10000; epoch++) {
         std::cout << "starting epoch " << epoch << std::endl;
         
-        float sigma = 4e-1f / (1.0f + exp(0.001f * (float) epoch)) + 1e-1f;
-        //float sigma = 4e-1;
+        //float sigma = 4e-1f / (1.0f + exp(0.001f * (float) epoch)) + 1e-1f;
+        float sigma = 4e-1;
         
-        start = std::chrono::steady_clock::now();
-        render <<< blocks, threads, 0 >>> (projection_device,
-                                           view_device.at(0),
-                                           transform_device,
-                                           
-                                           model_sdf_device, model_n_matrix_device,
-                                           model_normals_device,
-                                           p0_device, p1_device,
-                                           
-                                           target_device.at(0),
-                                           sigma,
-                                           
-                                           width, height,
-                                           
-                                           // do both the forwards and the backwards pass
-                                           false,
-                                           
-                                           // outputs
-                                           loss_device,
-                                           forward_device.at(0),
-                                           dloss_dsdf_device,
-                                           dloss_dtransform_device,
-                                           debug_backwards_device.at(0)
-                                          );
-        cudaThreadSynchronize();
+        for (size_t img_num = 0; img_num < num_views; img_num++) {
+            start = std::chrono::steady_clock::now();
+            render <<< blocks, threads, 0 >>> (projection_device,
+                                               view_device.at(img_num),
+                                               transform_device,
+                                               
+                                               model_sdf_device, model_n_matrix_device,
+                                               model_normals_device,
+                                               p0_device, p1_device,
+                                               
+                                               target_device.at(img_num),
+                                               sigma,
+                                               
+                                               width, height,
+                                               
+                                               // do both the forwards and the backwards pass
+                                               false,
+                                               
+                                               // outputs
+                                               loss_device,
+                                               forward_device.at(img_num),
+                                               dloss_dsdf_device,
+                                               dloss_dtransform_device,
+                                               debug_backwards_device.at(img_num)
+                                              );
+            cudaThreadSynchronize();
+            
+            end = std::chrono::steady_clock::now();
+            
+            diff = end - start;
+            
+            std::cout << "Rendered model image and performed backwards pass in "
+                      << std::chrono::duration <float, std::milli> (diff).count()
+                      << " ms"
+                      << std::endl << std::endl;
+                      
+            to_host<float, 3>(forward_device.at(img_num), forward_host.at(img_num));
+            to_host<float, 3>((float*)debug_backwards_device.at(img_num),
+                              debug_backwards_host.at(img_num));
+                              
+            write_img(("tracer_cuda_img/forward_cuda_" +
+                       std::to_string(epoch) + "_" +
+                       std::to_string(img_num) + ".bmp").c_str(),
+                      forward_host.at(img_num));
+            write_img(("tracer_cuda_img/debug_backwards_" +
+                       std::to_string(epoch) + "_" +
+                       std::to_string(img_num) + ".bmp").c_str(),
+                      debug_backwards_host.at(img_num));
+                      
+            // zero the loss/gradient/forward
+            zero(forward_host.at(img_num), forward_device.at(img_num), 0.0f);
+        }
         
-        end = std::chrono::steady_clock::now();
-        
-        diff = end - start;
-        
-        std::cout << "Rendered model image and performed backwards pass in "
-                  << std::chrono::duration <float, std::milli> (diff).count()
-                  << " ms"
-                  << std::endl << std::endl;
-                  
-        to_host<float, 1>(loss_device, loss_host);
-        to_host<float, 3>(forward_device.at(0), forward_host.at(0));
-        to_host<float, 3>(dloss_dsdf_device, dloss_dsdf_host);
-        to_host<float, 3>((float*)debug_backwards_device.at(0), debug_backwards_host.at(0));
+        optim.step();
         
         to_host<float, 3>(model_sdf_device, model_sdf_host);
+        //call_fmm(model_sdf_host, p0_host, p1_host);
         write_sdf("bunny/bunny_" + std::to_string(epoch) + ".sdf",
                   model_sdf_host,
                   p0_host,
                   p1_host);
                   
-        std::cout << "loss " << index(loss_host, 0) << std::endl;
+        to_host<float, 1>(loss_device, loss_host);
+        to_host<float, 3>(dloss_dsdf_device, dloss_dsdf_host);
         
-        write_img(("tracer_cuda_img/forward_cuda_" +
-                   std::to_string(epoch) + ".bmp").c_str(), forward_host.at(0));
-        write_img(("tracer_cuda_img/debug_backwards_" +
-                   std::to_string(epoch) + ".bmp").c_str(), debug_backwards_host.at(0));
-                   
-        float gradient_mag = 0.0f;
-        for (int i = 0; i < model_n_matrix[0]; i++) {
-            for (int j = 0; j < model_n_matrix[0]; j++) {
-                for (int k = 0; k < model_n_matrix[0]; k++) {
-                    gradient_mag += abs(index(dloss_dsdf_host, i, j, k));
-                }
-            }
-        }
-        std::cout << "gradient_mag: " << gradient_mag << std::endl;
+        std::cout << "loss " << index(loss_host, 0) << std::endl;
         
 #ifdef DEBUG_SDF
         for (int i = 0; i < model_n_matrix[0]; i++) {
@@ -1225,17 +1231,21 @@ void trace() {
         }
 #endif
         
-        optim.step();
+        float gradient_mag = 0.0f;
+        for (int i = 0; i < model_n_matrix[0]; i++) {
+            for (int j = 0; j < model_n_matrix[0]; j++) {
+                for (int k = 0; k < model_n_matrix[0]; k++) {
+                    gradient_mag += abs(index(dloss_dsdf_host, i, j, k));
+                }
+            }
+        }
+        std::cout << "gradient_mag: " << gradient_mag << std::endl;
         
-        to_host<float, 3>(model_sdf_device, model_sdf_host);
-        //call_fmm(model_sdf_host, p0_host, p1_host);
         cudaMemcpy(model_sdf_device, model_sdf_host->data,
                    model_sdf_host->num_elements * sizeof(float),
                    cudaMemcpyHostToDevice);
                    
-        // zero the loss/gradient/forward
         zero(loss_host, loss_device, 0.0f);
-        zero(forward_host.at(0), forward_device.at(0), 0.0f);
         zero(dloss_dsdf_host, dloss_dsdf_device, 0.0f);
     }
 }
