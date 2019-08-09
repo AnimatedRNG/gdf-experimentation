@@ -945,16 +945,9 @@ void trace() {
     assign(projection_host, (float*) projection_matrix, mat4_dims, true);
     float* projection_device = to_device<float, 2>(projection_host,
                                &mat4_dims_device);
-                               
-    //cuda_array<float, 2>* view_host = create<float, 2>(mat4_dims);
-    /*look_at(view_host,
-            make_float3(0.0f, 0.0f, -8.0f),
-            make_float3(0.0f, 0.0f, 0.0f),
-            make_float3(0.0f, 1.0f, 0.0f));*/
-    //assign(view_host, (float*) view_matrix, mat4_dims, true);
-    //float* view_device = to_device<float, 2>(view_host, &mat4_dims_device);
 
     std::vector<float*> view_matrices = generate_view_matrices();
+    size_t num_views = view_matrices.size();
     float* view_device = view_matrices.at(8);
     
     cuda_array<float, 2>* transform_host = create<float, 2>(mat4_dims);
@@ -988,7 +981,7 @@ void trace() {
             p0_matrix[0], p0_matrix[1], p0_matrix[2],
             p1_matrix[0], p1_matrix[1], p1_matrix[2],
             target_sdf_host);*/
-            
+    
     float* target_sdf_device = to_device<float, 3>(target_sdf_host,
                                &target_n_matrix_device);
                                
@@ -1007,16 +1000,31 @@ void trace() {
     cuda_array<float, 1>* p1_host = create<float, 1>(vec3_dims);
     assign(p1_host, (float*) p1_matrix, vec3_dims, true);
     float* p1_device = to_device<float, 1>(p1_host, &vec3_dims_device);
+
+    std::vector<cuda_array<float, 3>*> target_host;
+    std::vector<float*> target_device;
+
+    std::vector<cuda_array<float, 3>*> forward_host;
+    std::vector<float*> forward_device;
+
+    std::vector<cuda_array<float, 3>*> debug_backwards_host;
+    std::vector<float3*> debug_backwards_device;
     
-    cuda_array<float, 3>* target_host = create<float, 3>(img_dims);
-    float* target_device = to_device<float, 3>(target_host, &img_dims_device);
+    for (size_t i = 0; i < num_views; i++) {
+        target_host.push_back(create<float, 3>(img_dims));
+        target_device.push_back(to_device<float, 3>(target_host.at(i), &img_dims_device));
+
+        forward_host.push_back(create<float, 3>(img_dims));
+        forward_device.push_back(to_device<float, 3>(forward_host.at(0), &img_dims_device));
+
+        debug_backwards_host.push_back(create<float, 3>(img_dims));
+        debug_backwards_device.push_back(
+            (float3*) to_device<float, 3>(debug_backwards_host.at(0), &img_dims_device));
+    }
     
     cuda_array<float, 1>* loss_host = create<float, 1>(single_dim);
     index(loss_host, 0) = 0.0f;
     float* loss_device = to_device<float, 1>(loss_host, &single_dim_device);
-    
-    cuda_array<float, 3>* forward_host = create<float, 3>(img_dims);
-    float* forward_device = to_device<float, 3>(forward_host, &img_dims_device);
     
     cuda_array<float, 3>* dloss_dsdf_host = create<float, 3>(model_n_matrix);
     fill(dloss_dsdf_host, 0.0f);
@@ -1026,10 +1034,6 @@ void trace() {
     cuda_array<float, 2>* dloss_dtransform_host = create<float, 2>(mat4_dims);
     float* dloss_dtransform_device = to_device<float, 2>(dloss_dtransform_host,
                                      &mat4_dims_device);
-                                     
-    cuda_array<float, 3>* debug_backwards_host = create<float, 3>(img_dims);
-    float3* debug_backwards_device = (float3*) to_device<float, 3>
-                                     (debug_backwards_host, &img_dims_device);
                                      
     const size_t sobel_block_size = 4;
     const size_t target_sobel_grid_size_x = (int)(ceil((float) target_n_matrix[0] /
@@ -1088,7 +1092,7 @@ void trace() {
                                        p0_device, p1_device,
                                        
                                        // dummy input
-                                       forward_device,
+                                       forward_device.at(0),
                                        
                                        1e-2f,
                                        
@@ -1099,14 +1103,13 @@ void trace() {
                                        
                                        // outputs
                                        loss_device,
-                                       target_device,
+                                       target_device.at(0),
                                        dloss_dsdf_device,
                                        dloss_dtransform_device,
-                                       debug_backwards_device
+                                       debug_backwards_device.at(0)
                                       );
                                       
     cudaThreadSynchronize();
-    //zero(target_host, target_device, 0.0f);
     
     auto end = std::chrono::steady_clock::now();
     
@@ -1117,8 +1120,8 @@ void trace() {
               << " ms"
               << std::endl << std::endl;
               
-    to_host<float, 3>(target_device, target_host);
-    write_img("target_cuda.bmp", target_host);
+    to_host<float, 3>(target_device.at(0), target_host.at(0));
+    write_img("target_cuda.bmp", target_host.at(0));
     
     AdamOptimizer<float, 3> optim(model_sdf_device, dloss_dsdf_device,
                                   model_sdf_host, dloss_dsdf_host,
@@ -1139,7 +1142,7 @@ void trace() {
                                            model_normals_device,
                                            p0_device, p1_device,
                                            
-                                           target_device,
+                                           target_device.at(0),
                                            sigma,
                                            
                                            width, height,
@@ -1149,10 +1152,10 @@ void trace() {
                                            
                                            // outputs
                                            loss_device,
-                                           forward_device,
+                                           forward_device.at(0),
                                            dloss_dsdf_device,
                                            dloss_dtransform_device,
-                                           debug_backwards_device
+                                           debug_backwards_device.at(0)
                                           );
         cudaThreadSynchronize();
         
@@ -1166,9 +1169,9 @@ void trace() {
                   << std::endl << std::endl;
                   
         to_host<float, 1>(loss_device, loss_host);
-        to_host<float, 3>(forward_device, forward_host);
+        to_host<float, 3>(forward_device.at(0), forward_host.at(0));
         to_host<float, 3>(dloss_dsdf_device, dloss_dsdf_host);
-        to_host<float, 3>((float*)debug_backwards_device, debug_backwards_host);
+        to_host<float, 3>((float*)debug_backwards_device.at(0), debug_backwards_host.at(0));
         
         to_host<float, 3>(model_sdf_device, model_sdf_host);
         write_sdf("bunny/bunny_" + std::to_string(epoch) + ".sdf",
@@ -1179,9 +1182,9 @@ void trace() {
         std::cout << "loss " << index(loss_host, 0) << std::endl;
         
         write_img(("tracer_cuda_img/forward_cuda_" +
-                   std::to_string(epoch) + ".bmp").c_str(), forward_host);
+                   std::to_string(epoch) + ".bmp").c_str(), forward_host.at(0));
         write_img(("tracer_cuda_img/debug_backwards_" +
-                   std::to_string(epoch) + ".bmp").c_str(), debug_backwards_host);
+                   std::to_string(epoch) + ".bmp").c_str(), debug_backwards_host.at(0));
                    
         float gradient_mag = 0.0f;
         for (int i = 0; i < model_n_matrix[0]; i++) {
@@ -1215,16 +1218,16 @@ void trace() {
 #endif
         
         optim.step();
-
+        
         to_host<float, 3>(model_sdf_device, model_sdf_host);
         call_fmm(model_sdf_host, p0_host, p1_host);
         cudaMemcpy(model_sdf_device, model_sdf_host->data,
                    model_sdf_host->num_elements * sizeof(float),
                    cudaMemcpyHostToDevice);
-        
+                   
         // zero the loss/gradient/forward
         zero(loss_host, loss_device, 0.0f);
-        zero(forward_host, forward_device, 0.0f);
+        zero(forward_host.at(0), forward_device.at(0), 0.0f);
         zero(dloss_dsdf_host, dloss_dsdf_device, 0.0f);
     }
 }
