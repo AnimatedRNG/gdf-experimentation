@@ -495,3 +495,33 @@ __host__ __device__ float3 apply_affine(cuda_array<T, 2>* a, const float3& b) {
 
     return make_float3(affine_divide.x, affine_divide.y, affine_divide.z);
 }
+
+// based on GLKMatrix4MakeLookAt from GLKit
+inline __host__ __device__ void look_at(cuda_array<float, 2>* out,
+                                        float3 eye,
+                                 float3 center,
+                                 float3 up) {
+    const float3 n = normalize(center - eye);
+    const float3 u = normalize(cross(up, n));
+    const float3 v = cross(n, u);
+
+    index(out, 0, 0) = u.x;
+    index(out, 1, 0) = v.x;
+    index(out, 2, 0) = n.x;
+    index(out, 3, 0) = 0.0f;
+
+    index(out, 0, 1) = u.y;
+    index(out, 1, 1) = v.y;
+    index(out, 2, 1) = n.y;
+    index(out, 3, 1) = 0.0f;
+
+    index(out, 0, 2) = u.z;
+    index(out, 1, 2) = v.z;
+    index(out, 2, 2) = n.z;
+    index(out, 3, 2) = 0.0f;
+
+    index(out, 0, 3) = dot(-1.0f * u, eye);
+    index(out, 1, 3) = dot(-1.0f * v, eye);
+    index(out, 2, 3) = dot(-1.0f * n, eye);
+    index(out, 3, 3) = 1.0f;
+}

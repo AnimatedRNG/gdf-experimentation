@@ -906,7 +906,11 @@ void trace() {
                                &mat4_dims_device);
                                
     cuda_array<float, 2>* view_host = create<float, 2>(mat4_dims);
-    assign(view_host, (float*) view_matrix, mat4_dims, true);
+    look_at(view_host,
+            make_float3(0.0f, 0.0f, -8.0f),
+            make_float3(0.0f, 0.0f, 0.0f),
+            make_float3(0.0f, 1.0f, 0.0f));
+    //assign(view_host, (float*) view_matrix, mat4_dims, true);
     float* view_device = to_device<float, 2>(view_host, &mat4_dims_device);
     
     cuda_array<float, 2>* transform_host = create<float, 2>(mat4_dims);
