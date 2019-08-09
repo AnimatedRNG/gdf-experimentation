@@ -849,6 +849,47 @@ void render(float* projection_matrix_,
     index(&forward, 2, i, j) = clamp(c.z, 0.0f, 1.0f);
 }
 
+// only returns device pointers!
+__host__ std::vector<float*> generate_view_matrices(const float& r = 4.0f,
+                                                    const int& num_theta=3,
+                                                    const int& num_phi=3) {
+    size_t mat4_dims[2] = {4, 4};
+    size_t* mat4_dims_device;
+    
+    std::vector<float*> view_matrices;
+    view_matrices.clear();
+    
+    for (float phi = (float) -M_PI + ((float) M_PI / num_phi);
+         phi < (float) M_PI - ((float) M_PI / num_phi);
+         phi += ((float) M_PI) / ((float) num_phi + 2)) {
+        for (float theta = 0;
+             theta < 2.0f * (float) M_PI;
+             theta += (2.0f * (float) M_PI) / (float) num_theta) {
+
+            float x = r * cosf(theta) * sinf(phi);
+            float z = r * sinf(theta) * sinf(phi);
+            float y = r * cosf(phi);
+
+            std::cout << "x: " << x << "; y: " << y << "; z: " << z << std::endl;
+            
+            cuda_array<float, 2>* view_host = create<float, 2>(mat4_dims);
+            look_at(view_host,
+                    make_float3(x, y, z),
+                    make_float3(0.0f, 0.0f, 0.0f),
+                    make_float3(0.0f, 1.0f, 0.0f));
+
+            float* view_device = to_device<float, 2>(view_host,
+                               &mat4_dims_device);
+
+            view_matrices.push_back(view_device);
+            
+            delete_array(view_host);
+        }
+    }
+
+    return view_matrices;
+}
+
 void trace() {
     size_t model_n_matrix[3] = {
         32, 32, 32
@@ -869,7 +910,7 @@ void trace() {
     };
     
     const float transform_matrix[4][4] = {
-        {1.0f, 0.0f, 0.0f, -0.2f},
+        {1.0f, 0.0f, 0.0f, -0.0f},
         {0.0, 1.0f, 0.0f, 0.0f},
         {0.0f, 0.0f, 1.0f, 0.0f},
         {0.0f, 0.0f, 0.0f, 1.0}
@@ -905,13 +946,16 @@ void trace() {
     float* projection_device = to_device<float, 2>(projection_host,
                                &mat4_dims_device);
                                
-    cuda_array<float, 2>* view_host = create<float, 2>(mat4_dims);
-    look_at(view_host,
+    //cuda_array<float, 2>* view_host = create<float, 2>(mat4_dims);
+    /*look_at(view_host,
             make_float3(0.0f, 0.0f, -8.0f),
             make_float3(0.0f, 0.0f, 0.0f),
-            make_float3(0.0f, 1.0f, 0.0f));
+            make_float3(0.0f, 1.0f, 0.0f));*/
     //assign(view_host, (float*) view_matrix, mat4_dims, true);
-    float* view_device = to_device<float, 2>(view_host, &mat4_dims_device);
+    //float* view_device = to_device<float, 2>(view_host, &mat4_dims_device);
+
+    std::vector<float*> view_matrices = generate_view_matrices();
+    float* view_device = view_matrices.at(8);
     
     cuda_array<float, 2>* transform_host = create<float, 2>(mat4_dims);
     assign(transform_host, (float*) transform_matrix, mat4_dims, true);
