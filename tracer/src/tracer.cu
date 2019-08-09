@@ -946,9 +946,9 @@ void trace() {
     float* projection_device = to_device<float, 2>(projection_host,
                                &mat4_dims_device);
 
-    std::vector<float*> view_matrices = generate_view_matrices();
-    size_t num_views = view_matrices.size();
-    float* view_device = view_matrices.at(8);
+    std::vector<float*> view_device = generate_view_matrices(6);
+    size_t num_views = view_device.size();
+    //float* view_device = view_matrices.at(8);
     
     cuda_array<float, 2>* transform_host = create<float, 2>(mat4_dims);
     assign(transform_host, (float*) transform_matrix, mat4_dims, true);
@@ -1082,32 +1082,35 @@ void trace() {
     dim3 threads(block_size, block_size);
     
     auto start = std::chrono::steady_clock::now();
-    
-    render <<< blocks, threads, 0 >>> (projection_device,
-                                       view_device,
-                                       transform_device,
-                                       
-                                       target_sdf_device, target_n_matrix_device,
-                                       target_normals_device,
-                                       p0_device, p1_device,
-                                       
-                                       // dummy input
-                                       forward_device.at(0),
-                                       
-                                       1e-2f,
-                                       
-                                       width, height,
-                                       
-                                       // only do forwards pass
-                                       true,
-                                       
-                                       // outputs
-                                       loss_device,
-                                       target_device.at(0),
-                                       dloss_dsdf_device,
-                                       dloss_dtransform_device,
-                                       debug_backwards_device.at(0)
-                                      );
+
+    for (size_t img_num = 0; img_num < num_views; img_num++) {
+        render <<< blocks, threads, img_num >>> (
+                                           projection_device,
+                                           view_device.at(img_num),
+                                           transform_device,
+
+                                           target_sdf_device, target_n_matrix_device,
+                                           target_normals_device,
+                                           p0_device, p1_device,
+
+                                           // dummy input
+                                           forward_device.at(img_num),
+
+                                           1e-2f,
+
+                                           width, height,
+
+                                           // only do forwards pass
+                                           true,
+
+                                           // outputs
+                                           loss_device,
+                                           target_device.at(img_num),
+                                           dloss_dsdf_device,
+                                           dloss_dtransform_device,
+                                           debug_backwards_device.at(img_num)
+                                          );
+    }
                                       
     cudaThreadSynchronize();
     
@@ -1119,9 +1122,14 @@ void trace() {
               << std::chrono::duration <float, std::milli> (diff).count()
               << " ms"
               << std::endl << std::endl;
-              
-    to_host<float, 3>(target_device.at(0), target_host.at(0));
-    write_img("target_cuda.bmp", target_host.at(0));
+
+    for (size_t img_num = 0; img_num < num_views; img_num++) {
+        to_host<float, 3>(target_device.at(img_num), target_host.at(img_num));
+        write_img((std::string("target/target_cuda_")
+                   + std::to_string(img_num)
+                   + std::string(".bmp")).c_str(),
+                  target_host.at(img_num));
+    }
     
     AdamOptimizer<float, 3> optim(model_sdf_device, dloss_dsdf_device,
                                   model_sdf_host, dloss_dsdf_host,
@@ -1135,7 +1143,7 @@ void trace() {
         
         start = std::chrono::steady_clock::now();
         render <<< blocks, threads, 0 >>> (projection_device,
-                                           view_device,
+                                           view_device.at(0),
                                            transform_device,
                                            
                                            model_sdf_device, model_n_matrix_device,
@@ -1220,7 +1228,7 @@ void trace() {
         optim.step();
         
         to_host<float, 3>(model_sdf_device, model_sdf_host);
-        call_fmm(model_sdf_host, p0_host, p1_host);
+        //call_fmm(model_sdf_host, p0_host, p1_host);
         cudaMemcpy(model_sdf_device, model_sdf_host->data,
                    model_sdf_host->num_elements * sizeof(float),
                    cudaMemcpyHostToDevice);
