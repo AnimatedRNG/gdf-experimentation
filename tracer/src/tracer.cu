@@ -146,19 +146,28 @@ __device__ float3 sobel_at(cuda_array<float, 3>* sdf,
     float h_p_y = h_p(sdf, sdf_shape, pos, 1);
     float h_p_z = h_p(sdf, sdf_shape, pos, 2);
     
+    h_x = 1.0f;
+    h_y = 1.0f;
+    h_z = 1.0f;
+    
+    auto sanitize = [](float v) {
+        //return (v == 0.0f) ? copysignf(1e-6f, v) : v;
+        return (v == 0.0f) ? 1e-6f : v;
+    };
+    
     // TODO: properly handle degenerate case where
     // normal equals zero? or should we just add an offset
     if (norm) {
         return normalize(make_float3(
-                             h_p_x * h_y * h_z + 1e-7,
-                             h_p_y * h_z * h_x + 1e-7,
-                             h_p_z * h_x * h_y + 1e-7
+                             sanitize(h_p_x * h_y * h_z),
+                             sanitize(h_p_y * h_z * h_x),
+                             sanitize(h_p_z * h_x * h_y)
                          ));
     } else {
         return make_float3(
-                   h_p_x * h_y * h_z + 1e-7,
-                   h_p_y * h_z * h_x + 1e-7,
-                   h_p_z * h_x * h_y + 1e-7
+                   sanitize(h_p_x * h_y * h_z),
+                   sanitize(h_p_y * h_z * h_x),
+                   sanitize(h_p_z * h_x * h_y)
                );
     }
 }
@@ -170,51 +179,38 @@ __device__ float3 normalize_vector_d(float3 a,
     return (-1.0f * a * dot(a_d, a) / powf(length(a), 3.0f) + (a_d / length(a)));
 }
 
-// normals is the array of all the normals
-//
-// dsobeldsdf is the array storing the derivative of the sobel
-// filter. It starts at (0, 0, 0,  0, 0, 0)
-//
-// offset represents our offset from (0, 0, 0)
+// dsobeldsdf represents the derivative of the normals function at
+// `pos + offset`.
 __device__ void sobel_at_d(cuda_array<float3, 3>* normals,
                            cuda_array<float3, 3>* dsobeldsdf,
                            float trilinear_weight,
                            int3 pos,
                            int3 offset) {
-    float h_kern[3] = {1.0f, 2.0f, 1.0f};
-    float h_p_kern[3] = {1.0f, 0.0f, -1.0f};
-    
-    /*float3 unc_normal_in = sobel_at(sdf, sdf_shape,
-                                    make_uint3(pos + offset),
-                                    true);*/
     float3 unc_normal_in = index(normals,
-                                 pos.x + offset.x,
-                                 pos.y + offset.y,
-                                 pos.z + offset.z);
+                                 clamp(pos.x + offset.x, 0, int(normals->shape[0] - 1)),
+                                 clamp(pos.y + offset.y, 0, int(normals->shape[1] - 1)),
+                                 clamp(pos.z + offset.z, 0, int(normals->shape[2] - 1)));
                                  
-#pragma unroll
-    for (int i = -1; i < 2; i++) {
-#pragma unroll
-        for (int j = -1; j < 2; j++) {
-#pragma unroll
-            for (int k = -1; k < 2; k++) {
-                float3 sobel_d = make_float3(
-                                     h_p_kern[i + 1] * h_kern[j + 1] * h_kern[k + 1],
-                                     h_p_kern[j + 1] * h_kern[k + 1] * h_kern[i + 1],
-                                     h_p_kern[k + 1] * h_kern[i + 1] * h_kern[j + 1]
-                                 );
-                                 
-                float3 normal_sobel_d = normalize_vector_d(unc_normal_in, sobel_d);
+    index_off(dsobeldsdf, offset.x - 1, offset.y, offset.z, 1) +=
+        -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(1, 0,
+                0));
+    index_off(dsobeldsdf, offset.x + 1, offset.y, offset.z, 1) +=
+        -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(-1, 0,
+                0));
                 
-                float3& dnormal_dsdf = index_off(dsobeldsdf,
-                                                 i + offset.x, j + offset.y, k + offset.z,
-                                                 1);
-                                                 
-                dnormal_dsdf += -1.0f * trilinear_weight * normal_sobel_d;
-                //dnormal_dsdf += -1.0f * trilinear_weight * 1.0f;
-            }
-        }
-    }
+    index_off(dsobeldsdf, offset.x, offset.y - 1, offset.z, 1) +=
+        -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(0, 1,
+                0));
+    index_off(dsobeldsdf, offset.x, offset.y + 1, offset.z, 1) +=
+        -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(0, -1,
+                0));
+                
+    index_off(dsobeldsdf, offset.x, offset.y, offset.z - 1, 1) +=
+        -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(0, 0,
+                1));
+    index_off(dsobeldsdf, offset.x, offset.y, offset.z + 1, 1) +=
+        -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(0, 0,
+        -1));
 }
 
 __global__
@@ -561,12 +557,12 @@ void backwards_pass(
                         
                         pos, false);
                         
-        /*
-        #pragma unroll
+                        
+#pragma unroll
         for (int i = 0; i < 2; i++) {
-        #pragma unroll
+#pragma unroll
             for (int j = 0; j < 2; j++) {
-        #pragma unroll
+#pragma unroll
                 for (int k = 0; k < 2; k++) {
                     // resets dnormals
                     float trilinear_weight = index(&tw, i, j, k);
@@ -576,7 +572,7 @@ void backwards_pass(
                                lp, make_int3(i, j, k));
                 }
             }
-            }*/
+        }
         
         float expf_k_opc1 = expf(k * opc_t1);
         
@@ -613,11 +609,10 @@ void backwards_pass(
                     // dNormalsTrilinear/dSDF(i, j, k) represents
                     // Trilinear(Normals(i, j, k)). It's the trilinear interpolated
                     // normal of the SDF at location ijk (starts at -1, -1, -1)
-                    //float3 dnormalstrilinear_sdf_ijk = index_off(&dnormals, i, j, k, 1);
-                    float3 dnormalstrilinear_sdf_ijk = make_float3(0.0f);
-                    //float3 dnormalstrilinear_sdf_ijk = index_off(&dtrilinearnormals_dsdf, i, j, k,
-                    //                                   1);
-                    
+                    //float3 dnormalstrilinear_sdf_ijk = make_float3(0.0f, 0.0f, 0.0f);
+                    float3 dnormalstrilinear_sdf_ijk = index_off(&dtrilinearnormals_dsdf, i, j, k,
+                                                       1);
+                                                       
                     /*
                       dg_d/ddist -- (dist is a trilinear evaluation of the SDF)
                     
@@ -678,7 +673,7 @@ void backwards_pass(
                     float3 dopc_contribution = opc_accumulator * (g_d_d * ch.step);
                     float3 dvsdSDF = drops_out_vs + dopc_contribution;
                     float3 dOutdSDF = mesa(my_color) * dvsdSDF;
-                            
+                    
                     /**
                      * Now that we have dvs/dSDF, we need to compute dLoss/dSDF
                      *
@@ -1140,9 +1135,13 @@ void trace() {
     for (int epoch = 0; epoch < 10000; epoch++) {
         std::cout << "starting epoch " << epoch << std::endl;
         
-        //float sigma = 4e-1f / (1.0f + exp(0.001f * (float) epoch)) + 1e-1f;
-        float sigma = 4e-1;
+        float sigma = 4e-1f / (1.0f + exp(0.001f * (float) epoch)) + 1e-1f;
+        //float sigma = 4e-1;
         
+        sobel <<< model_sobel_blocks, model_sobel_threads, 0 >>> (model_sdf_device,
+                model_n_matrix_device,
+                model_normals_device);
+                
         for (size_t img_num = 0; img_num < num_views; img_num++) {
             start = std::chrono::steady_clock::now();
             render <<< blocks, threads, 0 >>> (projection_device,
@@ -1199,7 +1198,7 @@ void trace() {
         optim.step();
         
         to_host<float, 3>(model_sdf_device, model_sdf_host);
-        //call_fmm(model_sdf_host, p0_host, p1_host);
+        call_fmm(model_sdf_host, p0_host, p1_host);
         write_sdf("bunny/bunny_" + std::to_string(epoch) + ".sdf",
                   model_sdf_host,
                   p0_host,
