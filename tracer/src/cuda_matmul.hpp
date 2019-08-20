@@ -10,6 +10,11 @@ using namespace Halide::Runtime;
 
 //#define BOUNDS_CHECKING
 
+template<typename T>
+inline __host__ __device__ T reflect_edge(T a, T start, T end) {
+    return a + max(start - a, 0) - max(a - end + 1, 0);
+}
+
 template <typename T, size_t N>
 struct cuda_array {
     size_t shape[N];
@@ -109,6 +114,28 @@ __host__ __device__ T& index(cuda_array<T, 3>* arr,
     assert(k < arr->shape[2] && k >= 0);
 #endif // BOUNDS_CHECKING
     return arr->data[i * arr->stride[0] + j * arr->stride[1] + k * arr->stride[2]];
+}
+
+template <typename T>
+__host__ __device__ T& index_clamp(cuda_array<T, 3>* arr,
+                                   const int& i,
+                                   const int& j,
+                                   const int& k) {
+    return index(arr,
+                 clamp(i, 0, arr->shape[0] - 1),
+                 clamp(j, 0, arr->shape[1] - 1),
+                 clamp(k, 0, arr->shape[2] - 1));
+}
+
+template <typename T>
+__host__ __device__ T& index_reflect(cuda_array<T, 3>* arr,
+                                     const int& i,
+                                     const int& j,
+                                     const int& k) {
+    return index(arr,
+                 reflect_edge(i, 0, (int) arr->shape[0] - 1),
+                 reflect_edge(j, 0, (int) arr->shape[1] - 1),
+                 reflect_edge(k, 0, (int) arr->shape[2] - 1));
 }
 
 template <typename T>
