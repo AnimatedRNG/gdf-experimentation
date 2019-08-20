@@ -41,19 +41,19 @@ void eikonal_cost(
     if (i >= sdf_shape[0] || j >= sdf_shape[1] || k >= sdf_shape[2]) {
         return;
     }
-
+    
     cuda_array<float, 3> sdf;
     assign<float, 3>(&sdf,
                      sdf_,
                      sdf_shape);
-
+                     
     cuda_array<float, 3> dout_dsdf;
     assign<float, 3>(&dout_dsdf,
                      dout_dsdf_,
                      sdf_shape);
-
+                     
     size_t ho = order / 2;
-
+    
     float3 S = make_float3(0.0f);
     for (int ii = 0; ii < order; ii++) {
         S.x += index_reflect(&sdf, ii - ho, j, k) * derivative_kernel[ii];
@@ -64,12 +64,12 @@ void eikonal_cost(
     for (int kk = 0; kk < order; kk++) {
         S.z += index_reflect(&sdf, i, j, kk - ho) * derivative_kernel[kk];
     }
-
+    
     float my_loss_sqrt = c * (1.0f - (S.x * S.x + S.y * S.y + S.z * S.z));
     atomicAdd(dk_loss_, SQUARE(my_loss_sqrt));
-
+    
     float my_loss_d = my_loss_sqrt * -2.0f;
-
+    
     for (int ii = 0; ii < order; ii++) {
         //index_reflect(&dout_dsdf, ii - ho, j, k) += my_loss_d * 2.0f * S.x * derivative_kernel[ii];
         float dx = my_loss_d * 2.0f * S.x * derivative_kernel[ii];
@@ -218,7 +218,7 @@ __device__ float3 sobel_at(cuda_array<float, 3>* sdf,
         //return (v == 0.0f) ? copysignf(1e-6f, v) : v;
         return (v == 0.0f) ? 1e-6f : v;
     };
-
+    
     //return make_float3(index(sdf, pos.x, pos.y, pos.z));
     
     // TODO: properly handle degenerate case where
@@ -259,23 +259,23 @@ __device__ void sobel_at_d(cuda_array<float, 3>* sdf,
                                  clamp(pos.z + offset.z, 0, int(normals->shape[2] - 1)));
     /*float test_v = -1.0f;
     index_off(dsobeldsdf, offset.x, offset.y, offset.z, 1) = make_float3(test_v);
-
+    
     return;*/
-                                 
+    
     /*index_off(dsobeldsdf, offset.x - 1, offset.y, offset.z, 1) +=
         -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(1, 0,
                 0));
     index_off(dsobeldsdf, offset.x + 1, offset.y, offset.z, 1) +=
         -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(-1, 0,
                 0));
-                
+    
     index_off(dsobeldsdf, offset.x, offset.y - 1, offset.z, 1) +=
         -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(0, 1,
                 0));
     index_off(dsobeldsdf, offset.x, offset.y + 1, offset.z, 1) +=
         -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(0, -1,
                 0));
-                
+    
     index_off(dsobeldsdf, offset.x, offset.y, offset.z - 1, 1) +=
         -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(0, 0,
                 1));
@@ -321,22 +321,22 @@ void sobel(
 typedef struct {
     // Stores each ray evaluation position
     float3 pos[ITERATIONS + 1];
-
+    
     // Stores the trilinearly-interpolated SDF value
     float dist[ITERATIONS + 1];
-
+    
     // Stores the un-normalized normal
     float3 normal[ITERATIONS + 1];
-
+    
     // Stores the value of sigma_s
     float g_d[ITERATIONS + 1];
-
+    
     // Stores the value of sigma_t
     float opc[ITERATIONS + 1];
-
+    
     // Stores the value of I^t(p, D)
     float3 intensity[ITERATIONS + 1];
-
+    
     // Stores the value of L^t(p, D)
     float3 volumetric_shaded[ITERATIONS + 1];
     
@@ -1015,13 +1015,16 @@ void trace() {
         {0.0f, 0.0f, 0.0f, 1.0}
     };
     
-    float p0_matrix[3] = {
+    float model_p0_matrix[3] = {
         -4.0f, -4.0f, -4.0f
-    };
+        };
         
-    float p1_matrix[3] = {
+    float model_p1_matrix[3] = {
         4.0f, 4.0f, 4.0f
     };
+    
+    float target_p0_matrix[3];
+    float target_p1_matrix[3];
     
     const int width = 200;
     const int height = 200;
@@ -1059,18 +1062,19 @@ void trace() {
                               
     cuda_array<float, 3>* model_sdf_host = create<float, 3>(model_n_matrix);
     gen_sdf<float>(example_sphere,
-                   p0_matrix[0], p0_matrix[1], p0_matrix[2],
-                   p1_matrix[0], p1_matrix[1], p1_matrix[2],
+                   model_p0_matrix[0], model_p0_matrix[1], model_p0_matrix[2],
+                   model_p1_matrix[0], model_p1_matrix[1], model_p1_matrix[2],
                    model_sdf_host);
     float* model_sdf_device = to_device<float, 3>(model_sdf_host,
                               &model_n_matrix_device);
                               
     int n_matrix_i[3];
-    Buffer<float> target_sdf_buf(read_sdf("bunny.sdf",
-                                          p0_matrix[0], p0_matrix[1], p0_matrix[2],
-                                          p1_matrix[0], p1_matrix[1], p1_matrix[2],
-                                          n_matrix_i[0], n_matrix_i[1], n_matrix_i[2],
-                                          true, true, 8.0f));
+    Buffer<float> target_sdf_buf(
+        read_sdf("bunny.sdf",
+                 target_p0_matrix[0], target_p0_matrix[1], target_p0_matrix[2],
+                 target_p1_matrix[0], target_p1_matrix[1], target_p1_matrix[2],
+                 n_matrix_i[0], n_matrix_i[1], n_matrix_i[2],
+                 true, true, 8.0f));
     cuda_array<float, 3>* target_sdf_host = from_buffer<float, 3>(target_sdf_buf);
     for (int i = 0; i < 3; i++) {
         target_n_matrix[i] = n_matrix_i[i];
@@ -1095,13 +1099,21 @@ void trace() {
     float3* target_normals_device = to_device<float3, 3>(target_normals_host,
                                     &target_n_matrix_device);
                                     
-    cuda_array<float, 1>* p0_host = create<float, 1>(vec3_dims);
-    assign(p0_host, (float*) p0_matrix, vec3_dims, true);
-    float* p0_device = to_device<float, 1>(p0_host, &vec3_dims_device);
+    cuda_array<float, 1>* model_p0_host = create<float, 1>(vec3_dims);
+    assign(model_p0_host, (float*) model_p0_matrix, vec3_dims, true);
+    float* model_p0_device = to_device<float, 1>(model_p0_host, &vec3_dims_device);
     
-    cuda_array<float, 1>* p1_host = create<float, 1>(vec3_dims);
-    assign(p1_host, (float*) p1_matrix, vec3_dims, true);
-    float* p1_device = to_device<float, 1>(p1_host, &vec3_dims_device);
+    cuda_array<float, 1>* model_p1_host = create<float, 1>(vec3_dims);
+    assign(model_p1_host, (float*) model_p1_matrix, vec3_dims, true);
+    float* model_p1_device = to_device<float, 1>(model_p1_host, &vec3_dims_device);
+
+    cuda_array<float, 1>* target_p0_host = create<float, 1>(vec3_dims);
+    assign(target_p0_host, (float*) target_p0_matrix, vec3_dims, true);
+    float* target_p0_device = to_device<float, 1>(target_p0_host, &vec3_dims_device);
+    
+    cuda_array<float, 1>* target_p1_host = create<float, 1>(vec3_dims);
+    assign(target_p1_host, (float*) target_p1_matrix, vec3_dims, true);
+    float* target_p1_device = to_device<float, 1>(target_p1_host, &vec3_dims_device);
     
     std::vector<cuda_array<float, 3>*> target_host;
     std::vector<float*> target_device;
@@ -1129,7 +1141,7 @@ void trace() {
     cuda_array<float, 1>* loss_host = create<float, 1>(single_dim);
     index(loss_host, 0) = 0.0f;
     float* loss_device = to_device<float, 1>(loss_host, &single_dim_device);
-
+    
     cuda_array<float, 1>* dk_loss_host = create<float, 1>(single_dim);
     index(dk_loss_host, 0) = 0.0f;
     float* dk_loss_device = to_device<float, 1>(dk_loss_host, &single_dim_device);
@@ -1181,17 +1193,18 @@ void trace() {
             model_normals_device);
             
     cudaThreadSynchronize();
-
-    float dk_matrix[9] = {1.0f/280.0f,
-                                    -4.0f/105.0f,
-                                    1.0f/5.0f,
-                                    -4.0f/5.0f,
-                                    0.0f,
-                                    4.0f/5.0f,
-                                    -1.0f/5.0f,
-                                    4.0f/105.0f,
-                                    -1.0f/280.0f};
-
+    
+    float dk_matrix[9] = {1.0f / 280.0f,
+                          -4.0f / 105.0f,
+                          1.0f / 5.0f,
+                          -4.0f / 5.0f,
+                          0.0f,
+                          4.0f / 5.0f,
+                          -1.0f / 5.0f,
+                          4.0f / 105.0f,
+                          -1.0f / 280.0f
+                         };
+                         
     cuda_array<float, 1>* dk_host = create<float, 1>(dk_dims);
     assign(dk_host, (float*) dk_matrix, dk_dims, true);
     float* dk_device = to_device<float, 1>(dk_host, &dk_dims_device);
@@ -1216,7 +1229,7 @@ void trace() {
             
             target_sdf_device, target_n_matrix_device,
             target_normals_device,
-            p0_device, p1_device,
+            target_p0_device, target_p1_device,
             
             // dummy input
             forward_device.at(img_num),
@@ -1281,7 +1294,7 @@ void trace() {
                                                
                                                model_sdf_device, model_n_matrix_device,
                                                model_normals_device,
-                                               p0_device, p1_device,
+                                               model_p0_device, model_p1_device,
                                                
                                                target_device.at(img_num),
                                                sigma,
@@ -1324,11 +1337,11 @@ void trace() {
                       
             zero(forward_host.at(img_num), forward_device.at(img_num), 0.0f);
         }
-
+        
         float dcost = 1.0f;
-
+        
         start = std::chrono::steady_clock::now();
-        eikonal_cost <9> <<<model_sobel_blocks, model_sobel_threads, 0>>> (
+        eikonal_cost <9> <<< model_sobel_blocks, model_sobel_threads, 0>>> (
             model_sdf_device, model_n_matrix_device,
             dk_device,
             dloss_dsdf_device,
@@ -1336,24 +1349,24 @@ void trace() {
             dcost
         );
         end = std::chrono::steady_clock::now();
-
+        
         diff = end - start;
-            
+        
         std::cout << "Computed eikonal cost in "
                   << std::chrono::duration <float, std::milli> (diff).count()
                   << " ms"
                   << std::endl << std::endl;
-        
+                  
         optim.step();
         
         to_host<float, 3>(model_sdf_device, model_sdf_host);
-        //call_fmm(model_sdf_host, p0_host, p1_host);
-
+        //call_fmm(model_sdf_host, model_p0_host, model_p1_host);
+        
         
         write_sdf("bunny/bunny_" + std::to_string(epoch) + ".sdf",
                   model_sdf_host,
-                  p0_host,
-                  p1_host);
+                  model_p0_host,
+                  model_p1_host);
                   
         to_host<float, 1>(loss_device, loss_host);
         to_host<float, 1>(dk_loss_device, dk_loss_host);

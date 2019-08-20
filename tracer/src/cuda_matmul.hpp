@@ -325,7 +325,7 @@ template <typename T, size_t N>
 __host__ T* to_device(const cuda_array<T, N>* arr, size_t** shape) {
     T* device_ptr;
 
-    std::cout << "copying " << arr->num_elements << " to device" << std::endl;
+    //std::cout << "copying " << arr->num_elements << " to device" << std::endl;
     cudaMalloc(&device_ptr, arr->num_elements * sizeof(T));
     cudaMemcpy(device_ptr, arr->data, arr->num_elements * sizeof(T),
                cudaMemcpyHostToDevice);
@@ -347,7 +347,7 @@ __host__ void zero(cuda_array<T, N>* host, T* device, T zero_val) {
 template <typename T, size_t N>
 __host__ void to_host(T* arr, cuda_array<T, N>* host,
                       bool delete_device_buffer = false) {
-    std::cout << "copying " << host->num_elements << " to host" << std::endl;
+    //std::cout << "copying " << host->num_elements << " to host" << std::endl;
 
     int ret = cudaMemcpy(host->data, arr,
                          host->num_elements * sizeof(T),
