@@ -46,7 +46,7 @@ class AdamOptimizer {
                            cuda_array<T, N>* params_host,
                            cuda_array<T, N>* gradient_host,
                            T zero_value,
-                           const float& lr = 1e1f,
+                           const float& lr = 1e0f,
                            const float& beta_1 = 0.9f,
                            const float& beta_2 = 0.99f,
                            const float& weight_decay = 0.0f,
