@@ -154,6 +154,8 @@ __device__ float3 sobel_at(cuda_array<float, 3>* sdf,
         //return (v == 0.0f) ? copysignf(1e-6f, v) : v;
         return (v == 0.0f) ? 1e-6f : v;
     };
+
+    //return make_float3(index(sdf, pos.x, pos.y, pos.z));
     
     // TODO: properly handle degenerate case where
     // normal equals zero? or should we just add an offset
@@ -181,7 +183,8 @@ __device__ float3 normalize_vector_d(float3 a,
 
 // dsobeldsdf represents the derivative of the normals function at
 // `pos + offset`.
-__device__ void sobel_at_d(cuda_array<float3, 3>* normals,
+__device__ void sobel_at_d(cuda_array<float, 3>* sdf,
+                           cuda_array<float3, 3>* normals,
                            cuda_array<float3, 3>* dsobeldsdf,
                            float trilinear_weight,
                            int3 pos,
@@ -190,8 +193,12 @@ __device__ void sobel_at_d(cuda_array<float3, 3>* normals,
                                  clamp(pos.x + offset.x, 0, int(normals->shape[0] - 1)),
                                  clamp(pos.y + offset.y, 0, int(normals->shape[1] - 1)),
                                  clamp(pos.z + offset.z, 0, int(normals->shape[2] - 1)));
+    /*float test_v = -1.0f;
+    index_off(dsobeldsdf, offset.x, offset.y, offset.z, 1) = make_float3(test_v);
+
+    return;*/
                                  
-    index_off(dsobeldsdf, offset.x - 1, offset.y, offset.z, 1) +=
+    /*index_off(dsobeldsdf, offset.x - 1, offset.y, offset.z, 1) +=
         -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(1, 0,
                 0));
     index_off(dsobeldsdf, offset.x + 1, offset.y, offset.z, 1) +=
@@ -210,7 +217,7 @@ __device__ void sobel_at_d(cuda_array<float3, 3>* normals,
                 1));
     index_off(dsobeldsdf, offset.x, offset.y, offset.z + 1, 1) +=
         -1.0f * trilinear_weight * normalize_vector_d(unc_normal_in, make_float3(0, 0,
-        -1));
+        -1));*/
 }
 
 __global__
@@ -248,12 +255,25 @@ void sobel(
 }
 
 typedef struct {
+    // Stores each ray evaluation position
     float3 pos[ITERATIONS + 1];
+
+    // Stores the trilinearly-interpolated SDF value
     float dist[ITERATIONS + 1];
+
+    // Stores the un-normalized normal
     float3 normal[ITERATIONS + 1];
+
+    // Stores the value of sigma_s
     float g_d[ITERATIONS + 1];
+
+    // Stores the value of sigma_t
     float opc[ITERATIONS + 1];
+
+    // Stores the value of I^t(p, D)
     float3 intensity[ITERATIONS + 1];
+
+    // Stores the value of L^t(p, D)
     float3 volumetric_shaded[ITERATIONS + 1];
     
     float3 ray_pos;
@@ -307,9 +327,9 @@ __device__ float3 shade(float3 position, float3 origin, float3 normal,
                                      
     float3 total_light = top_light + self_light;
     
-    //return total_light;
+    return total_light;
     // I disabled the shading for now, the image has constant intensity
-    return make_float3(1.0f, 1.0f, 1.0f);
+    //return make_float3(1.0f, 1.0f, 1.0f);
 }
 
 __device__ float3 light_source_d(float3 light_color,
@@ -362,6 +382,7 @@ __device__ inline float relu(float a) {
 __device__ inline float normal_pdf_rectified(float x, float sigma = 1e-2f,
         float mean = 0.0f) {
     return normal_pdf(relu(x), sigma, mean);
+    //return normal_pdf(x, sigma, mean);
 }
 
 __device__ inline float normal_pdf_d(float x, float x_d,
@@ -397,7 +418,8 @@ __device__ float3 forward_pass(int x,
                                
                                int width,
                                int height,
-                               chk& ch
+                               chk& ch,
+                               bool shading = false
                               ) {
     ch.ray_pos = make_float3(0.0f, 0.0f, 0.0f);
     ch.ray_vec = make_float3(0.0f, 0.0f, 0.0f);
@@ -424,18 +446,21 @@ __device__ float3 forward_pass(int x,
         //float step = 1.0f / 100.0f;
         //float step = ds;
         // uncomment for sphere tracing
-        //float step = ch.dist[tr];
+        //step = ch.dist[tr] - 1e-6f;
         
         ch.pos[tr + 1] = ch.pos[tr] + step * ch.ray_vec;
         
         // also on iteration tr
         ch.g_d[tr] = normal_pdf_rectified(ch.dist[tr], sigma);
         
-        ch.normal[tr] = trilinear_norm(normals, p0, p1,
-                                       make_int3(sdf_shape),
-                                       ch.pos[tr],
-                                       make_float3(0.0f, 0.0f, 0.0f));
-        //ch.normal[tr] = make_float3(1.0f, 0.0f, 0.0f);
+        if (shading) {
+            ch.normal[tr] = trilinear_norm(normals, p0, p1,
+                                           make_int3(sdf_shape),
+                                           ch.pos[tr],
+                                           make_float3(0.0f, 0.0f, 0.0f));
+        } else {
+            ch.normal[tr] = make_float3(1.0f, 0.0f, 0.0f);
+        }
         
         ch.intensity[tr] = shade(ch.pos[tr], ch.origin, ch.normal[tr]);
         
@@ -448,7 +473,14 @@ __device__ float3 forward_pass(int x,
             ch.intensity[tr] * step;
     }
     
-    //return ch.intensity[ITERATIONS / 2];
+    ch.volumetric_shaded[ITERATIONS] =
+        make_float3(
+            clamp(ch.volumetric_shaded[ITERATIONS].x, 0.0f, 1.0f),
+            clamp(ch.volumetric_shaded[ITERATIONS].y, 0.0f, 1.0f),
+            clamp(ch.volumetric_shaded[ITERATIONS].z, 0.0f, 1.0f));
+            
+    //return ch.intensity[ITERATIONS - 1];
+    //return ch.normal[1000];
     //return make_float3(logf(ch.opc[ITERATIONS]) / 10.0f);
     return ch.volumetric_shaded[ITERATIONS];
     //return index(normals, x / (1000 / 64), y / (1000 / 64), 30);
@@ -566,7 +598,8 @@ void backwards_pass(
                 for (int k = 0; k < 2; k++) {
                     // resets dnormals
                     float trilinear_weight = index(&tw, i, j, k);
-                    sobel_at_d(normals,
+                    sobel_at_d(sdf,
+                               normals,
                                &dtrilinearnormals_dsdf,
                                trilinear_weight,
                                lp, make_int3(i, j, k));
@@ -687,7 +720,7 @@ void backwards_pass(
                     // divide by width * height?
                     //float dLossdSDF_ijk = (2.0f / (3.0f)) * norm_sq((target_color - vs_t1) * -1.0f *
                     //                      dvsdSDF);
-                    float dLossdSDF_ijk = (-2.0f / (3.0f)) *
+                    float dLossdSDF_ijk = (-2.0f / 3.0f) *
                                           (
                                               (target_color.x - vs_t1.x) * dOutdSDF.x +
                                               (target_color.y - vs_t1.y) * dOutdSDF.y +
@@ -702,12 +735,19 @@ void backwards_pass(
                 }
             }
         }
-
+        
         opc_accumulator += t2;
     }
     
     float3 db = index(debug_backwards, x, y);
-    index(debug_backwards, x, y) = make_float3(max(db.x, 0.0f), -min(db.y, 0.0f), 0.0f);
+    index(debug_backwards, x, y) = make_float3(max(db.x, 0.0f), -min(db.y, 0.0f),
+                                   0.0f);
+}
+
+inline void sample(std::vector<float*>& v, const size_t n) {
+    std::srand(1);
+    std::random_shuffle(v.begin(), v.end());
+    v.resize(n);
 }
 
 __global__
@@ -942,6 +982,7 @@ void trace() {
                                &mat4_dims_device);
                                
     std::vector<float*> view_device = generate_view_matrices(6);
+    //sample(view_device, 30);
     size_t num_views = view_device.size();
     //float* view_device = view_matrices.at(8);
     
@@ -1069,7 +1110,10 @@ void trace() {
             model_n_matrix_device,
             model_normals_device);
             
-    //cudaThreadSynchronize();
+    cudaThreadSynchronize();
+    
+    //to_host<float3, 3>(target_normals_device, target_normals_host);
+    //print(target_normals_host);
     
     const size_t block_size = 8;
     const size_t grid_size_x = (int)(ceil((float) width / (float) block_size));
@@ -1132,11 +1176,13 @@ void trace() {
                                   model_sdf_host, dloss_dsdf_host,
                                   0.0f);
                                   
-    for (int epoch = 0; epoch < 10000; epoch++) {
+    for (int epoch = 0; epoch < 400; epoch++) {
         std::cout << "starting epoch " << epoch << std::endl;
         
-        float sigma = 4e-1f / (1.0f + exp(0.001f * (float) epoch)) + 1e-1f;
-        //float sigma = 4e-1;
+        float sigma = 5e-1f / (exp(0.01f * (float) epoch)) + 1e-1f;
+        //float sigma = 6e-1f / (exp(0.01f * (float) epoch)) + 1e-2f;
+        //float sigma = 6e-1f;
+        //float sigma = 5e-2f;
         
         sobel <<< model_sobel_blocks, model_sobel_threads, 0 >>> (model_sdf_device,
                 model_n_matrix_device,

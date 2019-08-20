@@ -72,6 +72,31 @@ __device__ T trilinear(cuda_array < T, 3>* f,
     return c;
 }
 
+__device__ float3 nn_norm(cuda_array < float3, 3>* f,
+                          float3 p0,
+                          float3 p1,
+                          int3 sdf_shape,
+
+                          float3 position,
+                          float3 exterior,
+                          bool clamp_coords = false) {
+    float3 sdf_shape_f = make_float3(sdf_shape.x, sdf_shape.y, sdf_shape.z);
+    float3 grid_space = ((position - p0) / (p1 - p0)) * sdf_shape_f;
+
+    if (!clamp_coords && (grid_space.x < 0.0f || grid_space.x > sdf_shape_f.x
+                          || grid_space.y < 0.0f || grid_space.y > sdf_shape_f.y
+                          || grid_space.z < 0.0f || grid_space.z > sdf_shape_f.z)) {
+        return exterior;
+    }
+
+    int3 lp = make_int3(
+                  clamp(int(floor(grid_space.x)), 0, sdf_shape.x - 1),
+                  clamp(int(floor(grid_space.y)), 0, sdf_shape.y - 1),
+                  clamp(int(floor(grid_space.z)), 0, sdf_shape.z - 1)
+              );
+    return normalize(index(f, lp.x, lp.y, lp.z));
+}
+
 __device__ float3 trilinear_norm(cuda_array < float3, 3>* f,
                             float3 p0,
                             float3 p1,

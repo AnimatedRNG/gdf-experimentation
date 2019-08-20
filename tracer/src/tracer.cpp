@@ -191,7 +191,7 @@ int main() {
     float target_transform_[4][4] = {0.0f};
     identity(target_transform_);
     //apply_translation(target_transform_, 0.0f, 0.0f, 10.0f);
-    //apply_rotation(target_transform_, 0.0f, 0.5f, 0.0f);
+    apply_rotation(target_transform_, 0.0f, 0.5f, 0.0f);
     //apply_translation(target_transform_, 0.0f, 2.0f, -3.0f);
 
     /*const float model_translation_[3] = {
@@ -260,14 +260,16 @@ int main() {
 
     //to_device(loss_, interface);
 
-    ADAM adam(sdf_model, d_l_sdf_, 1e1f);
+    //ADAM adam(sdf_model, d_l_sdf_, 1e1f);
+    ADAM adam(model_transform, d_l_transform_, 1e-2f);
 
     to_device(p0, interface);
     to_device(p1, interface);
 
     auto start = std::chrono::steady_clock::now();
     sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], 0, sdf_model, p0, p1);
-    sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], 1, sdf_target, p0, p1);
+    //sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], 1, sdf_target, p0, p1);
+    sdf_gen(n_matrix[0], n_matrix[1], n_matrix[2], 0, sdf_target, p0, p1);
 
     auto end = std::chrono::steady_clock::now();
 
@@ -330,7 +332,7 @@ int main() {
         //to_device(model_transform_copy, interface);
         to_device(forward_, interface);
 
-        std::cout << "reinitializing distance field using FMM..." << std::endl;
+        /*std::cout << "reinitializing distance field using FMM..." << std::endl;
         start = std::chrono::steady_clock::now();
         fmm_gen(sdf_model,
                 p0, p1,
@@ -342,7 +344,7 @@ int main() {
         diff = end - start;
         std::cout << "completed FMM in "
                   << std::chrono::duration <float, std::milli> (diff).count()
-                  << " ms" << std::endl;
+                  << " ms" << std::endl;*/
         //debug_sdf("sdf_uncorrected", sdf_model, interface);
 
         start = std::chrono::steady_clock::now();
@@ -359,8 +361,8 @@ int main() {
         end = std::chrono::steady_clock::now();
         diff = end - start;
 
-        debug_sdf("d_l_sdf", d_l_sdf_, interface);
-        return 0;
+        //debug_sdf("d_l_sdf", d_l_sdf_, interface);
+        //return 0;
 
         //to_host(model_transform);
         //model_transform.set_host_dirty();
@@ -368,7 +370,7 @@ int main() {
 
         std::cout << "done with rendering; copying back now" << std::endl;
 
-        //to_host(d_l_transform_);
+        to_host(d_l_transform_);
 
         adam.step();
 
@@ -405,7 +407,18 @@ int main() {
                   << model_translation(1) << " "
                   << model_translation(2) << std::endl;*/
         std::cout << "model: " << std::endl;
+
+        to_host(model_transform);
+        float accum = 0.0f;
+        for (int ii = 0; ii < 4; ii++) {
+            for (int jj = 0; jj < 4; jj++) {
+                float dm = target_transform(ii, jj) - model_transform(ii, jj);
+                accum += dm * dm;
+            }
+        }
+        std::cout << "loss transform mse: " << accum / 16.0f << std::endl;
         print_matrix(model_transform);
+        to_device(model_transform, interface);
 
 #ifdef DEBUG_TRACER
         debug.copy_to_host();

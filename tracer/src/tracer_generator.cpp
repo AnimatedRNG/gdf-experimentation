@@ -403,8 +403,30 @@ class TracerGenerator : public Halide::Generator<TracerGenerator> {
         Expr step("step_" + name);
         repacked_ray_vec = repack<3>(ray_vec);
 
-        Func affine_ray_transform("affine_ray_transform_" + name);
+        /*Func affine_ray_transform("affine_ray_transform_" + name);
         affine_ray_transform(x, y) = ray_transform(x, y);
+        affine_ray_transform(3, 0) = 0.0f;
+        affine_ray_transform(3, 1) = 0.0f;
+        affine_ray_transform(3, 2) = 0.0f;
+        affine_ray_transform(3, 3) = 1.0f;*/
+
+        Func affine_ray_transform("affine_ray_transform_" + name);
+        affine_ray_transform(x, y) = 0.0f;
+
+        Expr s0 = norm({ray_transform(0, 0),
+                        ray_transform(1, 0),
+                        ray_transform(2, 0)});
+        Expr s1 = norm({ray_transform(0, 1),
+                        ray_transform(1, 1),
+                        ray_transform(2, 1)});
+        Expr s2 = norm({ray_transform(0, 2),
+                        ray_transform(1, 2),
+                        ray_transform(2, 2)});
+
+        affine_ray_transform(x, 0) = ray_transform(x, 0) / s0;
+        affine_ray_transform(x, 1) = ray_transform(x, 1) / s1;
+        affine_ray_transform(x, 2) = ray_transform(x, 2) / s2;
+
         affine_ray_transform(3, 0) = 0.0f;
         affine_ray_transform(3, 1) = 0.0f;
         affine_ray_transform(3, 2) = 0.0f;

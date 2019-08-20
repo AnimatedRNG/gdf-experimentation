@@ -210,7 +210,7 @@ inline float example_sphere(float x, float y, float z) {
     float xi = x;
     float yi = y;
     float zi = z;
-    return sqrtf(xi * xi + yi * yi + zi * zi) - 1.0f;
+    return sqrtf(xi * xi + yi * yi + zi * zi) - 3.0f;
 }
 
 inline float example_box(float x, float y, float z) {
@@ -266,10 +266,29 @@ __host__ void gen_sdf(std::function<float(float, float, float)> func,
 }
 
 template <typename T>
-__host__ void print(cuda_array<T, 2>* arr) {
+inline __host__ void print(cuda_array<T, 2>* arr) {
     for (int i = 0; i < arr->shape[0]; i++) {
         for (int j = 0; j < arr->shape[1]; j++) {
             std::cout << index(arr, i, j) << " ";
+        }
+        std::cout << std::endl;
+    }
+}
+
+inline __host__ void print(cuda_array<float3, 3>* arr) {
+    for (int i = 0; i < arr->shape[0]; i++) {
+        for (int j = 0; j < arr->shape[1]; j++) {
+            for (int k = 0; k < arr->shape[2]; k++) {
+                if (abs(index(arr, i, j, k).x) <= 1e-5f &&
+                    abs(index(arr, i, j, k).y) <= 1e-5f &&
+                    abs(index(arr, i, j, k).z) <= 1e-5f) {
+                    printf("%.1f %.1f %.1f   \t",
+                           index(arr, i, j, k).x,
+                           index(arr, i, j, k).y,
+                           index(arr, i, j, k).z);
+                }
+            }
+            std::cout << std::endl;
         }
         std::cout << std::endl;
     }
