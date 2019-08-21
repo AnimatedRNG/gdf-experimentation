@@ -12,14 +12,13 @@ inline Buffer<float> read_sdf(const std::string& filename,
                               float& p0_x, float& p0_y, float& p0_z,
                               float& p1_x, float& p1_y, float& p1_z,
                               int& nx, int& ny, int& nz,
+                              float& dx,
                               const bool& verbose = true,
                               const bool& rescale = true,
                               const float& scale_to = 1.0f) {
     auto error = [filename](const std::string & a) {
         throw std::runtime_error("error while parsing " + filename + ": " + a);
     };
-
-    float dx;
 
     std::string line;
 
