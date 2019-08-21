@@ -55,7 +55,8 @@ __host__ void write_img(const char* filename, cuda_array<float, 3>* arr) {
 __host__ void write_sdf(const std::string& filename,
                         cuda_array<float, 3>* arr,
                         cuda_array<float, 1>* p0,
-                        cuda_array<float, 1>* p1) {
+                        cuda_array<float, 1>* p1,
+                        float dx_=-1.0f) {
     std::ofstream outfile(filename);
 
     if (!outfile.is_open()) {
@@ -71,6 +72,10 @@ __host__ void write_sdf(const std::string& filename,
     // our SDFs can have rectangular grid cells
     // which aren't representable in the .sdf format
     float dx = (index(p1, 0) - index(p0, 0)) / arr->shape[0];
+
+    if (dx_ > 0.0f) {
+        dx = dx_;
+    }
 
     outfile << dx << std::endl;
 

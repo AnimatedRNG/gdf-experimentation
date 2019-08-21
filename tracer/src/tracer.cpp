@@ -215,11 +215,13 @@ int main() {
     float p0_1_matrix[3];
     float p1_1_matrix[3];
     int32_t n_1_matrix[3];
+    float dx;
 
     Buffer<float> bunny = read_sdf("bunny.sdf",
                                    p0_1_matrix[0], p0_1_matrix[1], p0_1_matrix[2],
                                    p1_1_matrix[0], p1_1_matrix[1], p1_1_matrix[2],
                                    n_1_matrix[0], n_1_matrix[1], n_1_matrix[2],
+                                   dx,
                                    true, true, 8.0f);
 
     Buffer<float> projection(projection_matrix);
