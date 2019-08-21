@@ -1042,16 +1042,37 @@ void trace() {
     size_t* img_dims_device;
     size_t* single_dim_device;
     size_t* dk_dims_device;
+
+    std::string sdf_name = "torus";
     
     size_t target_n_matrix[3];
+
+    float target_dx = 0.0f;
+    int n_matrix_i[3];
+    Buffer<float> target_sdf_buf(
+        read_sdf(sdf_name + ".sdf",
+                 target_p0_matrix[0], target_p0_matrix[1], target_p0_matrix[2],
+                 target_p1_matrix[0], target_p1_matrix[1], target_p1_matrix[2],
+                 n_matrix_i[0], n_matrix_i[1], n_matrix_i[2],
+                 target_dx,
+                 true, true, 8.0f));
+    cuda_array<float, 3>* target_sdf_host = from_buffer<float, 3>(target_sdf_buf);
+    for (int i = 0; i < 3; i++) {
+        target_n_matrix[i] = n_matrix_i[i];
+        
+        model_n_matrix[i] = n_matrix_i[i];
+        model_p0_matrix[i] = target_p0_matrix[i];
+        model_p1_matrix[i] = target_p1_matrix[i];
+    }
     
     cuda_array<float, 2>* projection_host = create<float, 2>(mat4_dims);
     assign(projection_host, (float*) projection_matrix, mat4_dims, true);
     float* projection_device = to_device<float, 2>(projection_host,
                                &mat4_dims_device);
                                
-    std::vector<float*> view_device = generate_view_matrices(6);
-    //sample(view_device, 30);
+    //std::vector<float*> view_device = generate_view_matrices(6, 20, 20);
+    std::vector<float*> view_device = generate_view_matrices(5, 20, 20);
+    sample(view_device, 30);
     size_t num_views = view_device.size();
     //float* view_device = view_matrices.at(8);
     
@@ -1068,17 +1089,6 @@ void trace() {
     float* model_sdf_device = to_device<float, 3>(model_sdf_host,
                               &model_n_matrix_device);
                               
-    int n_matrix_i[3];
-    Buffer<float> target_sdf_buf(
-        read_sdf("bunny.sdf",
-                 target_p0_matrix[0], target_p0_matrix[1], target_p0_matrix[2],
-                 target_p1_matrix[0], target_p1_matrix[1], target_p1_matrix[2],
-                 n_matrix_i[0], n_matrix_i[1], n_matrix_i[2],
-                 true, true, 8.0f));
-    cuda_array<float, 3>* target_sdf_host = from_buffer<float, 3>(target_sdf_buf);
-    for (int i = 0; i < 3; i++) {
-        target_n_matrix[i] = n_matrix_i[i];
-    }
     /*for (int i = 0; i < 3; i++) {
         target_n_matrix[i] = 16;
     }
@@ -1273,22 +1283,23 @@ void trace() {
                                   model_sdf_host, dloss_dsdf_host,
                                   0.0f);
                                   
-    for (int epoch = 0; epoch < 400; epoch++) {
+    for (int epoch = 0; epoch < 600; epoch++) {
         std::cout << "starting epoch " << epoch << std::endl;
         
         //float sigma = 5e-1f / (exp(0.01f * (float) epoch)) + 1e-1f;
         //float sigma = 6e-1f / (exp(0.01f * (float) epoch)) + 1e-2f;
-        float sigma = 6e-1f / (exp(0.001f * (float) epoch)) + 1e-2f;
-        //float sigma = 6e-1f;
+        //float sigma = 6e-1f / (exp(0.001f * (float) epoch)) + 1e-2f;
+        //float sigma = 1e0f;
         //float sigma = 5e-2f;
+        float sigma = 6e-1f;
         
         sobel <<< model_sobel_blocks, model_sobel_threads, 0 >>> (model_sdf_device,
                 model_n_matrix_device,
                 model_normals_device);
-                
+
+        start = std::chrono::steady_clock::now();
         for (size_t img_num = 0; img_num < num_views; img_num++) {
-            start = std::chrono::steady_clock::now();
-            render <<< blocks, threads, 0 >>> (projection_device,
+            render <<< blocks, threads, img_num >>> (projection_device,
                                                view_device.at(img_num),
                                                transform_device,
                                                
@@ -1311,32 +1322,36 @@ void trace() {
                                                dloss_dtransform_device,
                                                debug_backwards_device.at(img_num)
                                               );
-            cudaThreadSynchronize();
-            
-            end = std::chrono::steady_clock::now();
-            
-            diff = end - start;
-            
-            std::cout << "Rendered model image and performed backwards pass in "
-                      << std::chrono::duration <float, std::milli> (diff).count()
-                      << " ms"
-                      << std::endl << std::endl;
-                      
-            to_host<float, 3>(forward_device.at(img_num), forward_host.at(img_num));
-            to_host<float, 3>((float*)debug_backwards_device.at(img_num),
-                              debug_backwards_host.at(img_num));
-                              
-            write_img(("tracer_cuda_img/forward_cuda_" +
-                       std::to_string(epoch) + "_" +
-                       std::to_string(img_num) + ".bmp").c_str(),
-                      forward_host.at(img_num));
-            write_img(("tracer_cuda_img/debug_backwards_" +
-                       std::to_string(epoch) + "_" +
-                       std::to_string(img_num) + ".bmp").c_str(),
-                      debug_backwards_host.at(img_num));
-                      
-            zero(forward_host.at(img_num), forward_device.at(img_num), 0.0f);
+            if (epoch % 10 == 0) {
+                cudaThreadSynchronize();
+
+                to_host<float, 3>(forward_device.at(img_num), forward_host.at(img_num));
+                to_host<float, 3>((float*)debug_backwards_device.at(img_num),
+                                  debug_backwards_host.at(img_num));
+
+                write_img(("tracer_cuda_img/forward_cuda_" +
+                           std::to_string(epoch) + "_" +
+                           std::to_string(img_num) + ".bmp").c_str(),
+                          forward_host.at(img_num));
+                write_img(("tracer_cuda_img/debug_backwards_" +
+                           std::to_string(epoch) + "_" +
+                           std::to_string(img_num) + ".bmp").c_str(),
+                          debug_backwards_host.at(img_num));
+
+                zero(forward_host.at(img_num), forward_device.at(img_num), 0.0f);
+            }
         }
+        
+        cudaThreadSynchronize();    
+        
+        end = std::chrono::steady_clock::now();
+
+        diff = (end - start) / num_views;
+
+        std::cout << "On average forward and backwards pass in "
+                  << std::chrono::duration <float, std::milli> (diff).count()
+                  << " ms"
+                  << std::endl;
         
         float dcost = 1.0f;
         
@@ -1355,7 +1370,7 @@ void trace() {
         std::cout << "Computed eikonal cost in "
                   << std::chrono::duration <float, std::milli> (diff).count()
                   << " ms"
-                  << std::endl << std::endl;
+                  << std::endl;
                   
         optim.step();
         
@@ -1363,10 +1378,14 @@ void trace() {
         //call_fmm(model_sdf_host, model_p0_host, model_p1_host);
         
         
-        write_sdf("bunny/bunny_" + std::to_string(epoch) + ".sdf",
+        write_sdf(sdf_name + "/" + sdf_name + "_" + std::to_string(epoch) + ".sdf",
                   model_sdf_host,
                   model_p0_host,
-                  model_p1_host);
+                  model_p1_host,
+
+                  // will use target dims
+                  target_dx
+                  );
                   
         to_host<float, 1>(loss_device, loss_host);
         to_host<float, 1>(dk_loss_device, dk_loss_host);
@@ -1413,6 +1432,8 @@ void trace() {
         zero(loss_host, loss_device, 0.0f);
         zero(dk_loss_host, dk_loss_device, 0.0f);
         zero(dloss_dsdf_host, dloss_dsdf_device, 0.0f);
+
+        std::cout << std::endl;
     }
 }
 
