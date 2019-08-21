@@ -582,6 +582,7 @@ void backwards_pass(
                                       index(target, 2, x, y));
     float3 my_color = ch.volumetric_shaded[ITERATIONS];
     float my_loss = norm_sq(target_color - my_color);
+    
     atomicAdd(&index(loss, 0), my_loss);
     
     // reset each iteration
@@ -1043,7 +1044,7 @@ void trace() {
     size_t* single_dim_device;
     size_t* dk_dims_device;
 
-    std::string sdf_name = "torus";
+    std::string sdf_name = "bunny";
     
     size_t target_n_matrix[3];
 
@@ -1070,9 +1071,9 @@ void trace() {
     float* projection_device = to_device<float, 2>(projection_host,
                                &mat4_dims_device);
                                
-    //std::vector<float*> view_device = generate_view_matrices(6, 20, 20);
-    std::vector<float*> view_device = generate_view_matrices(5, 20, 20);
-    sample(view_device, 30);
+    std::vector<float*> view_device = generate_view_matrices(6);
+    //std::vector<float*> view_device = generate_view_matrices(5, 20, 20);
+    //sample(view_device, 30);
     size_t num_views = view_device.size();
     //float* view_device = view_matrices.at(8);
     
@@ -1283,15 +1284,15 @@ void trace() {
                                   model_sdf_host, dloss_dsdf_host,
                                   0.0f);
                                   
-    for (int epoch = 0; epoch < 600; epoch++) {
+    for (int epoch = 0; epoch < 900; epoch++) {
         std::cout << "starting epoch " << epoch << std::endl;
         
         //float sigma = 5e-1f / (exp(0.01f * (float) epoch)) + 1e-1f;
-        //float sigma = 6e-1f / (exp(0.01f * (float) epoch)) + 1e-2f;
+        float sigma = 6e-1f / (exp(0.01f * (float) epoch)) + 1e-2f;
         //float sigma = 6e-1f / (exp(0.001f * (float) epoch)) + 1e-2f;
         //float sigma = 1e0f;
         //float sigma = 5e-2f;
-        float sigma = 6e-1f;
+        //float sigma = 6e-1f;
         
         sobel <<< model_sobel_blocks, model_sobel_threads, 0 >>> (model_sdf_device,
                 model_n_matrix_device,
