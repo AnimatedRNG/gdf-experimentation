@@ -237,7 +237,8 @@ inline float example_sphere(float x, float y, float z) {
     float xi = x;
     float yi = y;
     float zi = z;
-    return sqrtf(xi * xi + yi * yi + zi * zi) - 3.0f;
+    //return sqrtf(xi * xi + yi * yi + zi * zi) - 3.0f;
+    return sqrtf(xi * xi + yi * yi + zi * zi) - 0.2f;
 }
 
 inline float example_box(float x, float y, float z) {
@@ -352,7 +353,7 @@ __host__ void to_host(T* arr, cuda_array<T, N>* host,
     int ret = cudaMemcpy(host->data, arr,
                          host->num_elements * sizeof(T),
                          cudaMemcpyDeviceToHost);
-    std::cout << "ret " << ret << std::endl;
+    //std::cout << "ret " << ret << std::endl;
     if (delete_device_buffer) {
         cudaFree((void*) arr);
     }
