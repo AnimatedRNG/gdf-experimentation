@@ -207,8 +207,8 @@ int main() {
         64, 64, 64
     };
 
-    int width = 100;
-    int height = 100;
+    int width = 150;
+    int height = 150;
     int iterations = 900;
 
     //float p0_x, p0_y, p0_z, p1_x, p1_y, p1_z;
